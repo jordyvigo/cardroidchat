@@ -1,0 +1,16 @@
+{
+  "name": "cardroidchat-bot",
+  "version": "1.0.0",
+  "description": "Bot de WhatsApp con whatsapp-web.js",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "whatsapp-web.js": "^1.18.0",
+    "axios": "^1.3.4",
+    "express": "^4.18.2",
+    "dotenv": "^16.0.3",
+    "qrcode": "^1.5.1"
+  }
+}
