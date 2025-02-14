@@ -142,7 +142,7 @@ client.on('message', async (message) => {
         
         await client.sendMessage(message.from, media, { caption: promo.descripcion });
         console.log('Oferta enviada:', promo.descripcion);
-        await sleep(1000); // Espera 1 segundo antes de enviar la siguiente oferta
+        await sleep(1500); // Espera 1 segundo antes de enviar la siguiente oferta
       } catch (error) {
         console.error('Error al enviar promoción:', error);
       }
