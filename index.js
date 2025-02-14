@@ -5,7 +5,7 @@ const axios = require('axios');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const qrcodeTerminal = require('qrcode-terminal');
+const QRCode = require('qrcode');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -17,8 +17,13 @@ const SESSION_FILE_PATH = './session.json';
 let sessionData = null;
 
 if (fs.existsSync(SESSION_FILE_PATH)) {
-  sessionData = require(SESSION_FILE_PATH);
-  console.log('Sesión previa encontrada. Se usará para iniciar sin QR.');
+  try {
+    sessionData = JSON.parse(fs.readFileSync(SESSION_FILE_PATH, 'utf8'));
+    console.log('Sesión previa encontrada. Se usará para iniciar sin QR.');
+  } catch (e) {
+    console.error('Error al parsear session.json. Se requerirá escanear el QR nuevamente.');
+    sessionData = null;
+  }
 } else {
   console.log('No se encontró sesión previa. Se requerirá escanear el QR la primera vez.');
 }
@@ -46,42 +51,48 @@ const client = new Client({
 // 3. Eventos del Cliente de WhatsApp
 // -------------------------------------------------
 
-// (A) Generar el QR en ASCII para vincular la sesión
-client.on('qr', (qrCode) => {
+// (A) Cuando se reciba un QR, generar un archivo PNG y guardarlo
+client.on('qr', async (qrCode) => {
   console.log('Se recibió un QR para vincular la sesión.');
-  qrcodeTerminal.generate(qrCode, { small: true });
-  console.log('Escanea el QR que aparece arriba en la consola con tu teléfono.');
+  try {
+    await QRCode.toFile('whatsapp-qr.png', qrCode);
+    console.log('QR Code generado en "whatsapp-qr.png". Visita /qr para visualizarlo.');
+  } catch (err) {
+    console.error('Error al generar el QR:', err);
+  }
 });
 
-// (B) Cuando se autentique, guardar la sesión en session.json
+// (B) Cuando se autentique, guardar la sesión en session.json (solo si se recibe el objeto de sesión)
 client.on('authenticated', (session) => {
+  if (!session) {
+    console.error('No se recibió información de sesión, no se guardará.');
+    return;
+  }
   console.log('Bot autenticado correctamente. Guardando sesión...');
   try {
-    fs.writeFileSync(SESSION_FILE_PATH, JSON.stringify(session));
+    fs.writeFileSync(SESSION_FILE_PATH, JSON.stringify(session, null, 2));
     console.log('Sesión guardada exitosamente en session.json');
   } catch (err) {
     console.error('Error al guardar la sesión:', err);
   }
 });
 
-// (C) Manejar errores de autenticación
 client.on('auth_failure', (msg) => {
   console.error('Error de autenticación:', msg);
 });
 
-// (D) Cuando el bot esté listo
 client.on('ready', () => {
   console.log('WhatsApp Bot listo para recibir mensajes!');
 });
 
-// (E) Evento de mensaje entrante: si el mensaje es "oferta", enviar las promociones
+// (C) Al recibir un mensaje, si es "oferta", enviar las promociones
 client.on('message', async (message) => {
   console.log('Mensaje entrante:', message.body);
-  
+
   if (message.body.trim().toLowerCase() === 'oferta') {
     console.log('Comando "oferta" recibido.');
     
-    // Arreglo con las promociones: URL de imagen y descripción
+    // Array de promociones con imagen y descripción
     const promociones = [
       {
         url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1739505408/2_by377e.png',
@@ -108,17 +119,15 @@ client.on('message', async (message) => {
         descripcion: 'Mejora la calidad de sonido con nuestra oferta irrepetible en parlantes pioneer. Precio incluye instalacion y garantía.'
       }
     ];
-    
-    // Iterar sobre cada promoción y enviarla
+
     for (const promo of promociones) {
       try {
         const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
         const base64Image = Buffer.from(response.data, 'binary').toString('base64');
         const mimeType = response.headers['content-type'];
         const media = new MessageMedia(mimeType, base64Image, 'promocion.png');
-        
         await client.sendMessage(message.from, media, { caption: promo.descripcion });
-        console.log('Oferta enviada con descripción:', promo.descripcion);
+        console.log('Oferta enviada:', promo.descripcion);
       } catch (error) {
         console.error('Error al enviar promoción:', error);
       }
@@ -127,18 +136,27 @@ client.on('message', async (message) => {
 });
 
 // -------------------------------------------------
-// 4. Inicializar el Cliente
+// 4. Inicializar el Cliente de WhatsApp
 // -------------------------------------------------
 client.initialize();
 
 // -------------------------------------------------
-// 5. Servidor Express para mantener la aplicación activa
+// 5. Servidor Express para mantener la app activa en Render
 // -------------------------------------------------
 app.get('/', (req, res) => {
   res.send('WhatsApp Bot está corriendo en Render.');
 });
 
-// Puedes agregar más endpoints si lo deseas
+// Endpoint para visualizar el QR (archivo PNG)
+app.get('/qr', (req, res) => {
+  const qrPath = path.join(__dirname, 'whatsapp-qr.png');
+  if (fs.existsSync(qrPath)) {
+    res.sendFile(qrPath);
+  } else {
+    res.status(404).send('El archivo QR no existe o aún no se ha generado.');
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Servidor corriendo en el puerto ${PORT}`);
 });
