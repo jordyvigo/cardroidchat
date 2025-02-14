@@ -55,7 +55,6 @@ const client = new Client({
       '--disable-gpu',
       '--no-first-run'
     ]
-    // En Render normalmente no es necesario especificar executablePath
   },
   session: sessionData
 });
@@ -107,33 +106,41 @@ client.on('message', async (message) => {
     
     const promociones = [
       {
-        url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1739505408/2_by377e.png',
-        descripcion: 'Mejora la seguridad de tu vehiculo con nuestra alarma con bluetooth, puedes activar y desactivar la alarma desde tu celular. Incluye dos llaveros, instalación incluida.'
+        url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1739505408/2_by377e.png',
+        descripcion: 'Mejora la seguridad de tu vehículo con nuestra alarma con bluetooth. Actívala desde tu celular. Incluye dos llaveros e instalación.'
       },
       {
-        url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1739505406/1_ipwvpm.png',
-        descripcion: 'Evita que se lleven tu vehiculo. Nuestro trabagas apaga tu vehiculo al alejar el sensor, aunque la llave se encuentre dentro del auto. Precio incluye instalacion y garantia.'
+        url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1739505406/1_ipwvpm.png',
+        descripcion: 'Evita robos con nuestro trabagas, que apaga el vehículo al alejar el sensor, incluso si la llave está dentro. Instalación y garantía incluidas.'
       },
       {
-        url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1739505402/3_y3nwmb.png',
-        descripcion: 'Vigila tu auto desde cualquier lugar con nuestro GPS con aplicativo, puedes apagar el vehículo, ver su recorrido diario y ubicación en tiempo real. Precio incluye instalación.'
+        url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1739505402/3_y3nwmb.png',
+        descripcion: 'Vigila tu auto desde cualquier lugar con nuestro GPS con aplicativo. Apaga el vehículo, visualiza recorridos diarios y más. Instalación incluida.'
       },
       {
-        url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1739505401/6_cq7qsl.png',
-        descripcion: 'Mejora el audio de tu vehículo y estremece al resto con la potencia de nuestro amplificador.'
+        url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1739505401/6_cq7qsl.png',
+        descripcion: 'Potencia el audio de tu vehículo con nuestro amplificador, para un sonido que impacta.'
       },
       {
-        url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1739505396/5_cxtaft.png',
-        descripcion: 'Añade entretenimiento a tu vehículo con nuestra pantalla android, puedes ver YouTube, Netflix, TV en vivo y estacionarte con mayor facilidad con la camara de 170° HD. Precio incluye instalación y garantia.'
+        url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1739505396/5_cxtaft.png',
+        descripcion: 'Añade entretenimiento con nuestra pantalla Android: YouTube, Netflix, TV en vivo y cámara HD de 170°. Instalación y garantía incluidas.'
       },
       {
-        url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1739505395/4_rv930u.png',
-        descripcion: 'Mejora la calidad de sonido con nuestra oferta irrepetible en parlantes pioneer. Precio incluye instalacion y garantía.'
+        url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1739505395/4_rv930u.png',
+        descripcion: 'Disfruta de un sonido inigualable con nuestros parlantes Pioneer. Instalación y garantía incluidas.'
       }
     ];
 
-    // Enviar cada promoción con un delay de 1 segundo entre envíos
-    for (const promo of promociones) {
+    // Seleccionamos 3 promociones de forma aleatoria
+    function getRandomPromos(promos, count) {
+      const shuffled = promos.slice().sort(() => 0.5 - Math.random());
+      return shuffled.slice(0, count);
+    }
+    
+    const promocionesSeleccionadas = getRandomPromos(promociones, 3);
+
+    // Enviar cada promoción con un delay de 1.5 segundos entre envíos
+    for (const promo of promocionesSeleccionadas) {
       try {
         const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
         const base64Image = Buffer.from(response.data, 'binary').toString('base64');
@@ -142,7 +149,7 @@ client.on('message', async (message) => {
         
         await client.sendMessage(message.from, media, { caption: promo.descripcion });
         console.log('Oferta enviada:', promo.descripcion);
-        await sleep(1500); // Espera 1 segundo antes de enviar la siguiente oferta
+        await sleep(1500);
       } catch (error) {
         console.error('Error al enviar promoción:', error);
       }
