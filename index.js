@@ -15,6 +15,14 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Manejo global de errores para evitar que el proceso se caiga
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 // -------------------------------------------------
 // 1. Manejo de Sesión: Leer/guardar session.json
 // -------------------------------------------------
@@ -56,7 +64,7 @@ const client = new Client({
 // 3. Eventos del Cliente de WhatsApp
 // -------------------------------------------------
 
-// (A) Cuando se reciba un QR, generar el archivo PNG y guardarlo
+// (A) Cuando se reciba un QR, generar el archivo PNG
 client.on('qr', async (qrCode) => {
   console.log('Se recibió un QR para vincular la sesión.');
   try {
@@ -90,14 +98,13 @@ client.on('ready', () => {
   console.log('WhatsApp Bot listo para recibir mensajes!');
 });
 
-// (C) Evento de mensaje entrante: Enviar promociones al recibir "oferta"
+// (C) Evento de mensaje entrante: si el mensaje es "oferta", enviar promociones
 client.on('message', async (message) => {
   console.log('Mensaje entrante:', message.body);
 
   if (message.body.trim().toLowerCase() === 'oferta') {
     console.log('Comando "oferta" recibido.');
     
-    // Array de promociones: cada objeto tiene URL y descripción
     const promociones = [
       {
         url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1739505408/2_by377e.png',
@@ -125,7 +132,7 @@ client.on('message', async (message) => {
       }
     ];
 
-    // Enviar cada promoción con un delay de 500ms entre cada envío
+    // Enviar cada promoción con un delay de 1 segundo entre envíos
     for (const promo of promociones) {
       try {
         const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
@@ -135,7 +142,7 @@ client.on('message', async (message) => {
         
         await client.sendMessage(message.from, media, { caption: promo.descripcion });
         console.log('Oferta enviada:', promo.descripcion);
-        await sleep(500); // Espera 500 ms antes de enviar la siguiente oferta
+        await sleep(1000); // Espera 1 segundo antes de enviar la siguiente oferta
       } catch (error) {
         console.error('Error al enviar promoción:', error);
       }
@@ -149,7 +156,7 @@ client.on('message', async (message) => {
 client.initialize();
 
 // -------------------------------------------------
-// 5. Servidor Express para Render
+// 5. Servidor Express para mantener la app activa en Render
 // -------------------------------------------------
 app.get('/', (req, res) => {
   res.send('WhatsApp Bot está corriendo en Render.');
