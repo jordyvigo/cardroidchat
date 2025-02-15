@@ -106,7 +106,7 @@ client.on('message', async (message) => {
       return shuffled.slice(0, count);
     }
     
-    const promocionesSeleccionadas = getRandomPromos(promociones, 5);
+    const promocionesSeleccionadas = getRandomPromos(promociones, 4);
     console.debug('Promociones seleccionadas:', promocionesSeleccionadas);
 
     // Enviar cada promoción con un delay de 1.5 segundos
