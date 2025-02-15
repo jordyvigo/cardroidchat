@@ -15,7 +15,7 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Manejo global de errores para evitar que el proceso se caiga
+// Manejo global de errores
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
 });
@@ -24,25 +24,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // -------------------------------------------------
-// 1. Manejo de Sesión: Leer/guardar session.json
-// -------------------------------------------------
-const SESSION_FILE_PATH = './session.json';
-let sessionData = null;
-
-if (fs.existsSync(SESSION_FILE_PATH)) {
-  try {
-    sessionData = JSON.parse(fs.readFileSync(SESSION_FILE_PATH, 'utf8'));
-    console.log('Sesión previa encontrada. Se usará para iniciar sin QR.');
-  } catch (e) {
-    console.error('Error al parsear session.json. Se requerirá escanear el QR nuevamente.');
-    sessionData = null;
-  }
-} else {
-  console.log('No se encontró sesión previa. Se requerirá escanear el QR la primera vez.');
-}
-
-// -------------------------------------------------
-// 2. Configuración del Cliente de WhatsApp
+// Configuración del Cliente de WhatsApp (sin sesión)
 // -------------------------------------------------
 const client = new Client({
   puppeteer: {
@@ -55,54 +37,41 @@ const client = new Client({
       '--disable-gpu',
       '--no-first-run'
     ]
-  },
-  session: sessionData
+  }
 });
 
 // -------------------------------------------------
-// 3. Eventos del Cliente de WhatsApp
+// Eventos del Cliente de WhatsApp
 // -------------------------------------------------
 
-// (A) Cuando se reciba un QR, generar el archivo PNG
+// (A) Cuando se reciba un QR, generar el archivo PNG y mostrarlo
 client.on('qr', async (qrCode) => {
-  console.log('Se recibió un QR para vincular la sesión.');
+  console.debug('Se recibió un QR para vincular la sesión.');
   try {
     await QRCode.toFile('whatsapp-qr.png', qrCode);
-    console.log('QR Code generado en "whatsapp-qr.png". Visita /qr para visualizarlo.');
+    console.debug('QR Code generado en "whatsapp-qr.png". Visita /qr para visualizarlo.');
   } catch (err) {
     console.error('Error al generar el QR:', err);
   }
 });
 
-// (B) Cuando se autentique, guardar la sesión en session.json
+// (B) Eventos de autenticación y conexión
 client.on('authenticated', (session) => {
-  if (!session) {
-    console.error('No se recibió información de sesión, no se guardará.');
-    return;
-  }
-  console.log('Bot autenticado correctamente. Guardando sesión...');
-  try {
-    fs.writeFileSync(SESSION_FILE_PATH, JSON.stringify(session, null, 2));
-    console.log('Sesión guardada exitosamente en session.json');
-  } catch (err) {
-    console.error('Error al guardar la sesión:', err);
-  }
+  console.debug('Bot autenticado correctamente (sin guardar sesión).');
 });
-
 client.on('auth_failure', (msg) => {
   console.error('Error de autenticación:', msg);
 });
-
 client.on('ready', () => {
-  console.log('WhatsApp Bot listo para recibir mensajes!');
+  console.debug('WhatsApp Bot listo para recibir mensajes!');
 });
 
-// (C) Evento de mensaje entrante: si el mensaje es "oferta", enviar promociones
+// (C) Evento de mensaje entrante: Si el mensaje es "oferta", enviar promociones
 client.on('message', async (message) => {
-  console.log('Mensaje entrante:', message.body);
+  console.debug('Mensaje entrante:', message.body);
 
   if (message.body.trim().toLowerCase() === 'oferta') {
-    console.log('Comando "oferta" recibido.');
+    console.debug('Comando "oferta" recibido.');
     
     const promociones = [
       {
@@ -111,7 +80,7 @@ client.on('message', async (message) => {
       },
       {
         url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1739505406/1_ipwvpm.png',
-        descripcion: 'Evita robos con nuestro trabagas, que apaga el vehículo al alejar el sensor, incluso si la llave está dentro. Instalación y garantía incluidas.'
+        descripcion: 'Evita que se lleven tu vehículo. Nuestro trabagas apaga tu vehículo al alejar el sensor, aunque la llave se encuentre dentro. Instalación y garantía incluidas.'
       },
       {
         url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1739505402/3_y3nwmb.png',
@@ -123,7 +92,7 @@ client.on('message', async (message) => {
       },
       {
         url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1739505396/5_cxtaft.png',
-        descripcion: 'Añade entretenimiento con nuestra pantalla Android: YouTube, Netflix, TV en vivo y cámara HD de 170°. Instalación y garantía incluidas.'
+        descripcion: 'Añade entretenimiento a tu vehículo con nuestra pantalla Android: YouTube, Netflix, TV en vivo y cámara HD de 170°. Instalación y garantía incluidas.'
       },
       {
         url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1739505395/4_rv930u.png',
@@ -131,24 +100,26 @@ client.on('message', async (message) => {
       }
     ];
 
-    // Seleccionamos 3 promociones de forma aleatoria
+    // Función para seleccionar aleatoriamente 3 promociones
     function getRandomPromos(promos, count) {
       const shuffled = promos.slice().sort(() => 0.5 - Math.random());
       return shuffled.slice(0, count);
     }
     
     const promocionesSeleccionadas = getRandomPromos(promociones, 3);
+    console.debug('Promociones seleccionadas:', promocionesSeleccionadas);
 
-    // Enviar cada promoción con un delay de 1.5 segundos entre envíos
+    // Enviar cada promoción con un delay de 1.5 segundos
     for (const promo of promocionesSeleccionadas) {
       try {
+        console.debug('Procesando promoción:', promo.descripcion);
         const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
         const base64Image = Buffer.from(response.data, 'binary').toString('base64');
         const mimeType = response.headers['content-type'];
         const media = new MessageMedia(mimeType, base64Image, 'promocion.png');
         
         await client.sendMessage(message.from, media, { caption: promo.descripcion });
-        console.log('Oferta enviada:', promo.descripcion);
+        console.debug('Oferta enviada:', promo.descripcion);
         await sleep(1500);
       } catch (error) {
         console.error('Error al enviar promoción:', error);
@@ -158,12 +129,12 @@ client.on('message', async (message) => {
 });
 
 // -------------------------------------------------
-// 4. Inicializar el Cliente de WhatsApp
+// Inicializar el Cliente de WhatsApp
 // -------------------------------------------------
 client.initialize();
 
 // -------------------------------------------------
-// 5. Servidor Express para mantener la app activa en Render
+// Servidor Express para mantener la app activa en Render
 // -------------------------------------------------
 app.get('/', (req, res) => {
   res.send('WhatsApp Bot está corriendo en Render.');
@@ -180,5 +151,5 @@ app.get('/qr', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Servidor corriendo en el puerto ${PORT}`);
+  console.debug(`Servidor corriendo en el puerto ${PORT}`);
 });
