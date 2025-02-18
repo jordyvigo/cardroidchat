@@ -1,4 +1,3 @@
-// index.js
 require('dotenv').config();
 const { Client, MessageMedia } = require('whatsapp-web.js');
 const axios = require('axios');
@@ -6,6 +5,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const QRCode = require('qrcode');
+const mongoose = require('mongoose');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,7 +15,7 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Manejo global de errores
+// Manejo global de errores para evitar que el proceso se caiga
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
 });
@@ -24,11 +24,66 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // -------------------------------------------------
-// Configuración del Cliente de WhatsApp (sin sesión)
+// 1. Conectar a MongoDB (base: ofertaclientes)
+// -------------------------------------------------
+mongoose.connect('mongodb+srv://jordyvigo:Gunbound2024@cardroid.crwia.mongodb.net/ofertaclientes?retryWrites=true&w=majority&appName=Cardroid', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+}).then(() => {
+  console.log('Conectado a MongoDB (ofertaclientes)');
+}).catch(err => {
+  console.error('Error conectando a MongoDB:', err);
+});
+
+// -------------------------------------------------
+// 2. Definir esquema y modelo "Cliente" (colección: clientes)
+// -------------------------------------------------
+const clienteSchema = new mongoose.Schema({
+  numero: { type: String, required: true, unique: true },
+  createdAt: { type: Date, default: Date.now }
+});
+const Cliente = mongoose.model('Cliente', clienteSchema, 'clientes');
+
+// -------------------------------------------------
+// 3. Función para registrar el número del cliente
+// -------------------------------------------------
+async function registrarNumero(numeroWhatsApp) {
+  const numeroLimpio = numeroWhatsApp.split('@')[0]; // Remueve "@c.us"
+  let cliente = await Cliente.findOne({ numero: numeroLimpio });
+  if (!cliente) {
+    cliente = new Cliente({ numero: numeroLimpio });
+    await cliente.save();
+    console.log(`Número ${numeroLimpio} registrado en MongoDB (colección clientes).`);
+  } else {
+    console.log(`El número ${numeroLimpio} ya está registrado.`);
+  }
+}
+
+// -------------------------------------------------
+// 4. Manejo de Sesión: Leer/guardar session.json
+// -------------------------------------------------
+const SESSION_FILE_PATH = './session.json';
+let sessionData = null;
+if (fs.existsSync(SESSION_FILE_PATH)) {
+  try {
+    sessionData = JSON.parse(fs.readFileSync(SESSION_FILE_PATH, 'utf8'));
+    console.log('Sesión previa encontrada. Se usará para iniciar sin QR.');
+  } catch (e) {
+    console.error('Error al parsear session.json. Se requerirá escanear el QR nuevamente.', e);
+    sessionData = null;
+  }
+} else {
+  console.log('No se encontró sesión previa. Se requerirá escanear el QR la primera vez.');
+}
+
+// -------------------------------------------------
+// 5. Configuración del Cliente de WhatsApp
 // -------------------------------------------------
 const client = new Client({
   puppeteer: {
     headless: true,
+    // Si usas Google Chrome instalado en el sistema, descomenta la siguiente línea y ajústala:
+    // executablePath: '/usr/bin/google-chrome-stable',
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -37,14 +92,15 @@ const client = new Client({
       '--disable-gpu',
       '--no-first-run'
     ]
-  }
+  },
+  session: sessionData
 });
 
 // -------------------------------------------------
-// Eventos del Cliente de WhatsApp
+// 6. Eventos del Cliente de WhatsApp
 // -------------------------------------------------
 
-// (A) Cuando se reciba un QR, generar el archivo PNG y mostrarlo
+// (A) Generar el QR en un archivo PNG y guardarlo
 client.on('qr', async (qrCode) => {
   console.debug('Se recibió un QR para vincular la sesión.');
   try {
@@ -55,24 +111,43 @@ client.on('qr', async (qrCode) => {
   }
 });
 
-// (B) Eventos de autenticación y conexión
+// (B) Guardar la sesión al autenticarse
 client.on('authenticated', (session) => {
-  console.debug('Bot autenticado correctamente (sin guardar sesión).');
+  if (!session) {
+    console.error('No se recibió información de sesión, no se guardará.');
+    return;
+  }
+  console.debug('Bot autenticado correctamente. Guardando sesión...');
+  try {
+    fs.writeFileSync(SESSION_FILE_PATH, JSON.stringify(session, null, 2));
+    console.debug('Sesión guardada exitosamente en session.json');
+  } catch (err) {
+    console.error('Error al guardar la sesión:', err);
+  }
 });
+
 client.on('auth_failure', (msg) => {
   console.error('Error de autenticación:', msg);
 });
+
 client.on('ready', () => {
   console.debug('WhatsApp Bot listo para recibir mensajes!');
 });
 
-// (C) Evento de mensaje entrante: Si el mensaje es "oferta", enviar promociones
+// (C) Evento de mensaje entrante: Si el mensaje es "oferta"
 client.on('message', async (message) => {
   console.debug('Mensaje entrante:', message.body);
 
   if (message.body.trim().toLowerCase() === 'oferta') {
     console.debug('Comando "oferta" recibido.');
-    
+
+    // Enviar un saludo inicial
+    await message.reply('¡Hola! Gracias por solicitar nuestras ofertas. Aquí tienes nuestras 6 promociones disponibles:');
+
+    // Registrar el número en MongoDB
+    registrarNumero(message.from).catch(err => console.error('Error al registrar número:', err));
+
+    // Definir las 6 promociones
     const promociones = [
       {
         url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1739505408/2_by377e.png',
@@ -100,17 +175,8 @@ client.on('message', async (message) => {
       }
     ];
 
-    // Función para seleccionar aleatoriamente 3 promociones
-    function getRandomPromos(promos, count) {
-      const shuffled = promos.slice().sort(() => 0.5 - Math.random());
-      return shuffled.slice(0, count);
-    }
-    
-    const promocionesSeleccionadas = getRandomPromos(promociones, 4);
-    console.debug('Promociones seleccionadas:', promocionesSeleccionadas);
-
     // Enviar cada promoción con un delay de 1.5 segundos
-    for (const promo of promocionesSeleccionadas) {
+    for (const promo of promociones) {
       try {
         console.debug('Procesando promoción:', promo.descripcion);
         const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
@@ -129,15 +195,15 @@ client.on('message', async (message) => {
 });
 
 // -------------------------------------------------
-// Inicializar el Cliente de WhatsApp
+// 7. Inicializar el Cliente de WhatsApp
 // -------------------------------------------------
 client.initialize();
 
 // -------------------------------------------------
-// Servidor Express para mantener la app activa en Render
+// 8. Servidor Express para mantener la app activa
 // -------------------------------------------------
 app.get('/', (req, res) => {
-  res.send('WhatsApp Bot está corriendo en Render.');
+  res.send('WhatsApp Bot está corriendo en Amazon Linux.');
 });
 
 // Endpoint para visualizar el QR (archivo PNG)
