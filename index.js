@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, MessageMedia } = require('whatsapp-web.js');
+const { Client, MessageMedia, LocalAuth } = require('whatsapp-web.js');
 const axios = require('axios');
 const express = require('express');
 const fs = require('fs');
@@ -48,7 +48,7 @@ const Cliente = mongoose.model('Cliente', clienteSchema, 'clientes');
 // 3. Función para registrar el número del cliente
 // -------------------------------------------------
 async function registrarNumero(numeroWhatsApp) {
-  const numeroLimpio = numeroWhatsApp.split('@')[0]; // Remueve "@c.us"
+  const numeroLimpio = numeroWhatsApp.split('@')[0];
   let cliente = await Cliente.findOne({ numero: numeroLimpio });
   if (!cliente) {
     cliente = new Cliente({ numero: numeroLimpio });
@@ -60,26 +60,10 @@ async function registrarNumero(numeroWhatsApp) {
 }
 
 // -------------------------------------------------
-// 4. Manejo de Sesión: Leer/guardar session.json
-// -------------------------------------------------
-const SESSION_FILE_PATH = './session.json';
-let sessionData = null;
-if (fs.existsSync(SESSION_FILE_PATH)) {
-  try {
-    sessionData = JSON.parse(fs.readFileSync(SESSION_FILE_PATH, 'utf8'));
-    console.log('Sesión previa encontrada. Se usará para iniciar sin QR.');
-  } catch (e) {
-    console.error('Error al parsear session.json. Se requerirá escanear el QR nuevamente.', e);
-    sessionData = null;
-  }
-} else {
-  console.log('No se encontró sesión previa. Se requerirá escanear el QR la primera vez.');
-}
-
-// -------------------------------------------------
-// 5. Configuración del Cliente de WhatsApp
+// 4. Configuración del Cliente de WhatsApp con LocalAuth
 // -------------------------------------------------
 const client = new Client({
+  authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }), 
   puppeteer: {
     headless: true,
     // Si usas Google Chrome instalado, descomenta y ajusta la siguiente línea:
@@ -92,12 +76,11 @@ const client = new Client({
       '--disable-gpu',
       '--no-first-run'
     ]
-  },
-  session: sessionData
+  }
 });
 
 // -------------------------------------------------
-// 6. Eventos del Cliente de WhatsApp
+// 5. Eventos del Cliente de WhatsApp
 // -------------------------------------------------
 
 // (A) Al recibir un QR, generar el archivo PNG para visualizarlo
@@ -111,36 +94,22 @@ client.on('qr', async (qrCode) => {
   }
 });
 
-// (B) Guardar la sesión al autenticarse
-client.on('authenticated', (session) => {
-  if (!session) {
-    console.error('No se recibió información de sesión, no se guardará.');
-    return;
-  }
-  console.debug('Bot autenticado correctamente. Guardando sesión...');
-  try {
-    fs.writeFileSync(SESSION_FILE_PATH, JSON.stringify(session, null, 2));
-    console.debug('Sesión guardada exitosamente en session.json');
-  } catch (err) {
-    console.error('Error al guardar la sesión:', err);
-  }
+// (B) Manejo de eventos
+client.on('ready', () => {
+  console.debug('WhatsApp Bot listo para recibir mensajes!');
 });
 
 client.on('auth_failure', (msg) => {
   console.error('Error de autenticación:', msg);
 });
 
-client.on('ready', () => {
-  console.debug('WhatsApp Bot listo para recibir mensajes!');
-});
-
 // -------------------------------------------------
-// 7. Gestión de estado para ofertas por usuario
+// 6. Gestión de estado para ofertas por usuario
 // -------------------------------------------------
 const userOfferState = {};
 
 // -------------------------------------------------
-// 8. Evento de mensaje entrante: Si el mensaje es "oferta"
+// 7. Evento de mensaje entrante: Si el mensaje es "oferta"
 // -------------------------------------------------
 client.on('message', async (message) => {
   console.debug('Mensaje entrante:', message.body);
@@ -198,11 +167,11 @@ client.on('message', async (message) => {
           descripcion: 'Haz lucir mejor a tu vehículo con las luces sobre el capot LED. Dale presencia en las calles.'
         },
         {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1740087462/PIONEER_pyhajk.png',
+          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1740087462/PIONEER_pyhajk.png',
           descripcion: 'Mejora el sonido de tu auto con nuestros parlantes Pioneer en oferta.'
         },
         {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1740087463/MIXTRACK_smuvbl.png',
+          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1740087463/MIXTRACK_smuvbl.png',
           descripcion: 'Aprovecha la oferta para mejorar los parlantes en tu vehículo.'
         },
         {
@@ -239,12 +208,14 @@ client.on('message', async (message) => {
       const firstBatch = getRandomPromos(promociones, 8);
       const remainingBatch = promociones.filter(promo => !firstBatch.includes(promo));
 
+      // Guardamos el estado de este usuario
       userOfferState[message.from] = {
         requestCount: 1,
         firstOffers: firstBatch,
         remainingOffers: remainingBatch
       };
 
+      // Enviar las 8 ofertas iniciales
       for (const promo of firstBatch) {
         try {
           console.debug('Procesando promoción:', promo.descripcion);
@@ -255,7 +226,7 @@ client.on('message', async (message) => {
           
           await client.sendMessage(message.from, media, { caption: promo.descripcion });
           console.debug('Oferta enviada:', promo.descripcion);
-          await sleep(1500);
+          await sleep(2000);
         } catch (error) {
           console.error('Error al enviar promoción:', error);
         }
@@ -282,8 +253,8 @@ client.on('message', async (message) => {
         }
       }
     } else {
+      // Tercera vez que escribe "oferta": no hay más ofertas
       await message.reply('Ya te hemos enviado todas las ofertas disponibles.');
-      // Reiniciar el estado para permitir un nuevo ciclo
       delete userOfferState[message.from];
     }
   }
