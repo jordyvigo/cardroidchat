@@ -15,7 +15,7 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Manejo global de errores para evitar caídas
+// Manejo global de errores
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
 });
@@ -40,33 +40,38 @@ mongoose.connect('mongodb+srv://jordyvigo:Gunbound2024@cardroid.crwia.mongodb.ne
 // -------------------------------------------------
 const clienteSchema = new mongoose.Schema({
   numero: { type: String, required: true, unique: true },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
+  lastInteraction: { type: Date }
 });
 const Cliente = mongoose.model('Cliente', clienteSchema, 'clientes');
 
 // -------------------------------------------------
-// 3. Función para registrar el número del cliente
+// 3. Función para registrar el número del cliente y actualizar la última interacción
 // -------------------------------------------------
 async function registrarNumero(numeroWhatsApp) {
   const numeroLimpio = numeroWhatsApp.split('@')[0];
-  let cliente = await Cliente.findOne({ numero: numeroLimpio });
+  let cliente = await Cliente.findOneAndUpdate(
+    { numero: numeroLimpio },
+    { $set: { lastInteraction: new Date() } },
+    { new: true }
+  );
   if (!cliente) {
-    cliente = new Cliente({ numero: numeroLimpio });
+    cliente = new Cliente({ numero: numeroLimpio, lastInteraction: new Date() });
     await cliente.save();
     console.log(`Número ${numeroLimpio} registrado en MongoDB (colección clientes).`);
   } else {
-    console.log(`El número ${numeroLimpio} ya está registrado.`);
+    console.log(`El número ${numeroLimpio} ya está registrado. Última interacción actualizada.`);
   }
 }
 
 // -------------------------------------------------
-// 4. Configuración del Cliente de WhatsApp con LocalAuth
+// 4. Configuración del Cliente de WhatsApp con LocalAuth para guardar la sesión automáticamente
 // -------------------------------------------------
 const client = new Client({
-  authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }), 
+  authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
   puppeteer: {
     headless: true,
-    // Si usas Google Chrome instalado, descomenta y ajusta la siguiente línea:
+    // Si usas Google Chrome instalado en el sistema, descomenta la siguiente línea:
     // executablePath: '/usr/bin/google-chrome-stable',
     args: [
       '--no-sandbox',
@@ -94,7 +99,6 @@ client.on('qr', async (qrCode) => {
   }
 });
 
-// (B) Manejo de eventos
 client.on('ready', () => {
   console.debug('WhatsApp Bot listo para recibir mensajes!');
 });
@@ -109,12 +113,14 @@ client.on('auth_failure', (msg) => {
 const userOfferState = {};
 
 // -------------------------------------------------
-// 7. Evento de mensaje entrante: Si el mensaje es "oferta"
+// 7. Evento de mensaje entrante
 // -------------------------------------------------
 client.on('message', async (message) => {
   console.debug('Mensaje entrante:', message.body);
-
-  if (message.body.trim().toLowerCase() === 'oferta') {
+  
+  // Condición: Si el mensaje empieza con "oferta" o "ofertas" (ignora mayúsculas y posibles textos adicionales)
+  const msgText = message.body.trim().toLowerCase();
+  if (msgText.startsWith('oferta')) {
     // Reaccionar con un emoji de dinero (para ofertas)
     try {
       await message.react('🤑');
@@ -124,15 +130,15 @@ client.on('message', async (message) => {
     
     console.debug('Comando "oferta" recibido.');
 
-    // Si no existe estado para este usuario, es la primera solicitud.
+    // Actualizar la última interacción del cliente
+    registrarNumero(message.from).catch(err => console.error('Error al registrar número:', err));
+
+    // Si es la primera solicitud para este usuario
     if (!userOfferState[message.from]) {
       // Enviar saludo y 8 ofertas iniciales
       await message.reply('¡Hola! Gracias por solicitar nuestras ofertas. Aquí tienes nuestras 8 promociones iniciales:');
 
-      // Registrar el número en MongoDB
-      registrarNumero(message.from).catch(err => console.error('Error al registrar número:', err));
-
-      // Definir las 16 promociones con URLs optimizadas y descripciones
+      // Definir las 16 promociones con sus URLs optimizadas y descripciones
       const promociones = [
         {
           url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1740087453/ELEVALUNAS_cjhixl.png',
@@ -167,11 +173,11 @@ client.on('message', async (message) => {
           descripcion: 'Haz lucir mejor a tu vehículo con las luces sobre el capot LED. Dale presencia en las calles.'
         },
         {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1740087462/PIONEER_pyhajk.png',
+          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1740087462/PIONEER_pyhajk.png',
           descripcion: 'Mejora el sonido de tu auto con nuestros parlantes Pioneer en oferta.'
         },
         {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1740087463/MIXTRACK_smuvbl.png',
+          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1740087463/MIXTRACK_smuvbl.png',
           descripcion: 'Aprovecha la oferta para mejorar los parlantes en tu vehículo.'
         },
         {
@@ -208,14 +214,19 @@ client.on('message', async (message) => {
       const firstBatch = getRandomPromos(promociones, 8);
       const remainingBatch = promociones.filter(promo => !firstBatch.includes(promo));
 
-      // Guardamos el estado de este usuario
+      // Guardamos el estado de este usuario e iniciamos un timeout de seguimiento de 10 minutos (600,000 ms)
       userOfferState[message.from] = {
         requestCount: 1,
         firstOffers: firstBatch,
-        remainingOffers: remainingBatch
+        remainingOffers: remainingBatch,
+        timeout: setTimeout(async () => {
+          // Si el usuario no envía otra solicitud en 10 minutos, enviar mensaje de seguimiento
+          if (userOfferState[message.from] && userOfferState[message.from].requestCount === 1) {
+            await client.sendMessage(message.from, '¿Podrías mencionarme para qué modelo y año de auto deseas los productos?');
+          }
+        }, 10 * 60 * 1000)
       };
 
-      // Enviar las 8 ofertas iniciales
       for (const promo of firstBatch) {
         try {
           console.debug('Procesando promoción:', promo.descripcion);
@@ -233,6 +244,10 @@ client.on('message', async (message) => {
       }
       await message.reply('Si deseas ver más ofertas, escribe "oferta" otra vez.');
     } else if (userOfferState[message.from].requestCount === 1) {
+      // Si se envía "oferta" por segunda vez, cancelar el timeout de seguimiento
+      if (userOfferState[message.from].timeout) {
+        clearTimeout(userOfferState[message.from].timeout);
+      }
       // Segunda solicitud: enviar las ofertas restantes
       const remaining = userOfferState[message.from].remainingOffers;
       userOfferState[message.from].requestCount = 2;
@@ -253,20 +268,20 @@ client.on('message', async (message) => {
         }
       }
     } else {
-      // Tercera vez que escribe "oferta": no hay más ofertas
       await message.reply('Ya te hemos enviado todas las ofertas disponibles.');
+      // Reiniciar el estado para permitir un nuevo ciclo
       delete userOfferState[message.from];
     }
   }
 });
 
 // -------------------------------------------------
-// 9. Inicializar el Cliente de WhatsApp
+// 8. Inicializar el Cliente de WhatsApp
 // -------------------------------------------------
 client.initialize();
 
 // -------------------------------------------------
-// 10. Servidor Express para mantener la app activa
+// 9. Servidor Express para mantener la app activa
 // -------------------------------------------------
 app.get('/', (req, res) => {
   res.send('WhatsApp Bot está corriendo en Amazon Linux.');
