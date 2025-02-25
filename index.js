@@ -46,7 +46,25 @@ const clienteSchema = new mongoose.Schema({
 const Cliente = mongoose.model('Cliente', clienteSchema, 'clientes');
 
 // -------------------------------------------------
-// 3. Función para registrar el número del cliente y actualizar la última interacción
+// 3. Definir esquema y modelo para Interacciones (colección: interacciones)
+// -------------------------------------------------
+const interaccionSchema = new mongoose.Schema({
+  numero: { type: String, required: true },
+  tipo: { type: String }, // Ej: "solicitudOferta", "solicitudInfo"
+  mensaje: { type: String },
+  createdAt: { type: Date, default: Date.now }
+});
+const Interaccion = mongoose.model('Interaccion', interaccionSchema, 'interacciones');
+
+// Función para registrar interacciones
+async function registrarInteraccion(numero, tipo, mensaje) {
+  const interaccion = new Interaccion({ numero, tipo, mensaje });
+  await interaccion.save();
+  console.log(`Interacción registrada: ${numero} - ${tipo}`);
+}
+
+// -------------------------------------------------
+// 4. Función para registrar el número del cliente y actualizar la última interacción
 // -------------------------------------------------
 async function registrarNumero(numeroWhatsApp) {
   const numeroLimpio = numeroWhatsApp.split('@')[0];
@@ -65,13 +83,13 @@ async function registrarNumero(numeroWhatsApp) {
 }
 
 // -------------------------------------------------
-// 4. Configuración del Cliente de WhatsApp con LocalAuth para guardar la sesión automáticamente
+// 5. Configuración del Cliente de WhatsApp usando LocalAuth
 // -------------------------------------------------
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
   puppeteer: {
     headless: true,
-    // Si usas Google Chrome instalado en el sistema, descomenta la siguiente línea:
+    // Si usas Google Chrome instalado, descomenta y ajusta:
     // executablePath: '/usr/bin/google-chrome-stable',
     args: [
       '--no-sandbox',
@@ -85,10 +103,9 @@ const client = new Client({
 });
 
 // -------------------------------------------------
-// 5. Eventos del Cliente de WhatsApp
+// 6. Eventos del Cliente de WhatsApp
 // -------------------------------------------------
 
-// (A) Al recibir un QR, generar el archivo PNG para visualizarlo
 client.on('qr', async (qrCode) => {
   console.debug('Se recibió un QR para vincular la sesión.');
   try {
@@ -108,37 +125,35 @@ client.on('auth_failure', (msg) => {
 });
 
 // -------------------------------------------------
-// 6. Gestión de estado para ofertas por usuario
+// 7. Gestión de estado para ofertas por usuario
 // -------------------------------------------------
 const userOfferState = {};
 
 // -------------------------------------------------
-// 7. Evento de mensaje entrante
+// 8. Evento de mensaje entrante: procesamiento de ofertas
 // -------------------------------------------------
 client.on('message', async (message) => {
   console.debug('Mensaje entrante:', message.body);
-  
-  // Condición: Si el mensaje empieza con "oferta" o "ofertas" (ignora mayúsculas y posibles textos adicionales)
   const msgText = message.body.trim().toLowerCase();
+  
+  // Si el mensaje comienza con "oferta" o "ofertas"
   if (msgText.startsWith('oferta')) {
-    // Reaccionar con un emoji de dinero (para ofertas)
+    // Registrar interacción de solicitud de oferta
+    registrarInteraccion(message.from.split('@')[0], 'solicitudOferta', message.body).catch(err => console.error(err));
+    
+    // Reaccionar con un emoji sugerente de oferta (dinero con cara)
     try {
       await message.react('🤑');
     } catch (err) {
       console.error('Error al reaccionar al mensaje:', err);
     }
     
-    console.debug('Comando "oferta" recibido.');
-
-    // Actualizar la última interacción del cliente
-    registrarNumero(message.from).catch(err => console.error('Error al registrar número:', err));
-
-    // Si es la primera solicitud para este usuario
+    // Si no existe estado para este usuario, es la primera solicitud.
     if (!userOfferState[message.from]) {
-      // Enviar saludo y 8 ofertas iniciales
       await message.reply('¡Hola! Gracias por solicitar nuestras ofertas. Aquí tienes nuestras 8 promociones iniciales:');
-
-      // Definir las 16 promociones con sus URLs optimizadas y descripciones
+      registrarNumero(message.from).catch(err => console.error('Error al registrar número:', err));
+      
+      // Definir las 16 promociones con URLs optimizadas y descripciones
       const promociones = [
         {
           url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1740087453/ELEVALUNAS_cjhixl.png',
@@ -206,7 +221,7 @@ client.on('message', async (message) => {
         }
       ];
 
-      // Función para seleccionar aleatoriamente 8 promociones
+      // Seleccionar aleatoriamente 8 promociones para la primera tanda
       function getRandomPromos(promos, count) {
         const shuffled = promos.slice().sort(() => 0.5 - Math.random());
         return shuffled.slice(0, count);
@@ -214,19 +229,19 @@ client.on('message', async (message) => {
       const firstBatch = getRandomPromos(promociones, 8);
       const remainingBatch = promociones.filter(promo => !firstBatch.includes(promo));
 
-      // Guardamos el estado de este usuario e iniciamos un timeout de seguimiento de 10 minutos (600,000 ms)
+      // Guardar estado para este usuario y establecer timeout de seguimiento (10 minutos)
       userOfferState[message.from] = {
         requestCount: 1,
         firstOffers: firstBatch,
         remainingOffers: remainingBatch,
         timeout: setTimeout(async () => {
-          // Si el usuario no envía otra solicitud en 10 minutos, enviar mensaje de seguimiento
           if (userOfferState[message.from] && userOfferState[message.from].requestCount === 1) {
             await client.sendMessage(message.from, '¿Podrías mencionarme para qué modelo y año de auto deseas los productos?');
           }
         }, 10 * 60 * 1000)
       };
 
+      // Enviar las 8 ofertas iniciales
       for (const promo of firstBatch) {
         try {
           console.debug('Procesando promoción:', promo.descripcion);
@@ -244,11 +259,10 @@ client.on('message', async (message) => {
       }
       await message.reply('Si deseas ver más ofertas, escribe "oferta" otra vez.');
     } else if (userOfferState[message.from].requestCount === 1) {
-      // Si se envía "oferta" por segunda vez, cancelar el timeout de seguimiento
+      // Segunda solicitud: enviar las ofertas restantes y cancelar timeout
       if (userOfferState[message.from].timeout) {
         clearTimeout(userOfferState[message.from].timeout);
       }
-      // Segunda solicitud: enviar las ofertas restantes
       const remaining = userOfferState[message.from].remainingOffers;
       userOfferState[message.from].requestCount = 2;
       await message.reply('Aquí tienes más ofertas:');
@@ -276,23 +290,69 @@ client.on('message', async (message) => {
 });
 
 // -------------------------------------------------
-// 8. Inicializar el Cliente de WhatsApp
+// 9. Inicializar el Cliente de WhatsApp
 // -------------------------------------------------
 client.initialize();
 
 // -------------------------------------------------
-// 9. Servidor Express para mantener la app activa
+// 10. Servidor Express para mantener la app activa y mostrar el CRM
 // -------------------------------------------------
 app.get('/', (req, res) => {
   res.send('WhatsApp Bot está corriendo en Amazon Linux.');
 });
 
+// Endpoint para visualizar el QR (archivo PNG)
 app.get('/qr', (req, res) => {
   const qrPath = path.join(__dirname, 'whatsapp-qr.png');
   if (fs.existsSync(qrPath)) {
     res.sendFile(qrPath);
   } else {
     res.status(404).send('El archivo QR no existe o aún no se ha generado.');
+  }
+});
+
+// CRM Dashboard
+app.get('/crm', async (req, res) => {
+  try {
+    const totalClientes = await Cliente.countDocuments({});
+    const totalOfertasSolicitadas = await Interaccion.countDocuments({ tipo: "solicitudOferta" });
+    const totalSolicitudesInfo = await Interaccion.countDocuments({ tipo: "solicitudInfo" });
+    const html = `
+      <html>
+        <head>
+          <title>CRM Dashboard</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            .stat { margin-bottom: 10px; }
+            button { padding: 10px 20px; font-size: 16px; }
+          </style>
+        </head>
+        <body>
+          <h1>CRM Dashboard</h1>
+          <div class="stat">Número de clientes registrados: ${totalClientes}</div>
+          <div class="stat">Solicitudes de oferta: ${totalOfertasSolicitadas}</div>
+          <div class="stat">Solicitudes de más información: ${totalSolicitudesInfo}</div>
+          <button onclick="location.href='/crm/send-offers'">Enviar Oferta a Todos</button>
+        </body>
+      </html>
+    `;
+    res.send(html);
+  } catch (err) {
+    res.status(500).send('Error generando el dashboard');
+  }
+});
+
+// Endpoint para enviar un mensaje de oferta a todos los clientes
+app.get('/crm/send-offers', async (req, res) => {
+  try {
+    const clientes = await Cliente.find({});
+    for (let cliente of clientes) {
+      await client.sendMessage(`${cliente.numero}@c.us`, 'Oferta especial del mes: ¡No te la pierdas!');
+      await sleep(500);
+    }
+    res.send('Ofertas enviadas a todos los clientes.');
+  } catch (err) {
+    res.status(500).send('Error enviando ofertas a todos los clientes');
   }
 });
 
