@@ -89,7 +89,7 @@ const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
   puppeteer: {
     headless: true,
-    // Descomenta la siguiente línea si deseas usar Chrome instalado en el sistema:
+    // Descomenta la siguiente línea si deseas usar Chrome instalado:
     // executablePath: '/usr/bin/google-chrome-stable',
     args: [
       '--no-sandbox',
@@ -128,7 +128,7 @@ client.on('auth_failure', (msg) => {
 // -------------------------------------------------
 const userOfferState = {};
 
-// Función para cargar ofertas desde el archivo "offers.json"
+// Función para cargar ofertas desde "offers.json"
 function cargarOfertas() {
   try {
     const data = fs.readFileSync(path.join(__dirname, 'offers.json'), 'utf8');
@@ -140,7 +140,96 @@ function cargarOfertas() {
 }
 
 // -------------------------------------------------
-// 8. Endpoint para enviar ofertas mensuales proactivamente a todos los clientes
+// 8. Evento de mensaje entrante para "oferta" y "marzo"
+// -------------------------------------------------
+client.on('message', async (message) => {
+  const msgText = message.body.trim().toLowerCase();
+  console.debug('Mensaje entrante:', message.body);
+
+  // Si el mensaje inicia con "oferta" (para ofertas de FB Ads, etc.)
+  if (msgText.startsWith('oferta')) {
+    // Registrar interacción de solicitud de oferta
+    await registrarInteraccion(message.from.split('@')[0], 'solicitudOferta', message.body);
+    try {
+      await message.react('🤑');
+    } catch (err) {
+      console.error('Error al reaccionar:', err);
+    }
+    registrarNumero(message.from).catch(err => console.error(err));
+    if (!userOfferState[message.from]) {
+      await message.reply('¡Hola! Aquí tienes nuestras 8 promociones iniciales:');
+      
+      const ofertas = cargarOfertas();
+      if (ofertas.length === 0) {
+        await message.reply('Actualmente no hay ofertas disponibles.');
+        return;
+      }
+      
+      // Seleccionar aleatoriamente 8 ofertas para la primera tanda
+      function getRandomPromos(promos, count) {
+        const shuffled = promos.slice().sort(() => 0.5 - Math.random());
+        return shuffled.slice(0, count);
+      }
+      const firstBatch = getRandomPromos(ofertas, 8);
+      const remainingBatch = ofertas.filter(promo => !firstBatch.includes(promo));
+      
+      // Establecer timeout de seguimiento de 10 minutos
+      userOfferState[message.from] = {
+        requestCount: 1,
+        firstOffers: firstBatch,
+        remainingOffers: remainingBatch,
+        timeout: setTimeout(async () => {
+          if (userOfferState[message.from] && userOfferState[message.from].requestCount === 1) {
+            await client.sendMessage(message.from, '¿Podrías mencionarme para qué modelo y año de auto deseas los productos?');
+            await registrarInteraccion(message.from.split('@')[0], 'solicitudInfo', 'Seguimiento: falta información del modelo y año');
+          }
+        }, 10 * 60 * 1000)
+      };
+      
+      for (const promo of firstBatch) {
+        try {
+          const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
+          const base64Image = Buffer.from(response.data, 'binary').toString('base64');
+          const mimeType = response.headers['content-type'];
+          const media = new MessageMedia(mimeType, base64Image, 'oferta.png');
+          await client.sendMessage(message.from, media, { caption: promo.descripcion });
+          await sleep(2000);
+        } catch (error) {
+          console.error('Error al enviar oferta:', error);
+        }
+      }
+      await message.reply('Si deseas ver más ofertas, escribe "marzo".');
+    }
+  }
+  // Si el mensaje inicia con "marzo" (para enviar la segunda tanda de ofertas)
+  else if (msgText.startsWith('marzo')) {
+    if (userOfferState[message.from] && userOfferState[message.from].requestCount === 1) {
+      if (userOfferState[message.from].timeout) {
+        clearTimeout(userOfferState[message.from].timeout);
+      }
+      const remaining = userOfferState[message.from].remainingOffers;
+      userOfferState[message.from].requestCount = 2;
+      await message.reply('Aquí tienes más ofertas:');
+      for (const promo of remaining) {
+        try {
+          const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
+          const base64Image = Buffer.from(response.data, 'binary').toString('base64');
+          const mimeType = response.headers['content-type'];
+          const media = new MessageMedia(mimeType, base64Image, 'oferta.png');
+          await client.sendMessage(message.from, media, { caption: promo.descripcion });
+          await sleep(1500);
+        } catch (error) {
+          console.error('Error al enviar oferta:', error);
+        }
+      }
+    } else {
+      await message.reply('No hay ofertas adicionales para mostrar.');
+    }
+  }
+});
+
+// -------------------------------------------------
+// 9. Endpoint para enviar ofertas mensuales a todos los clientes (proactivo)
 // -------------------------------------------------
 app.get('/crm/send-initial-offers', async (req, res) => {
   try {
@@ -150,21 +239,20 @@ app.get('/crm/send-initial-offers', async (req, res) => {
       return res.send('No hay ofertas disponibles.');
     }
     
-    // Mensaje introductorio mejorado
+    // Mensaje introductorio mejorado para campaña escolar (saludo de marzo)
     const mensajeIntro = "En esta temporada de campaña escolar, entendemos la importancia de maximizar tus ahorros. Por ello, te ofrecemos descuentos exclusivos para que puedas optimizar y mejorar tu vehículo este mes. ¡Descubre nuestras ofertas especiales!";
     
-    // Distribuir el envío a lo largo de 8 horas
+    // Distribuir el envío a lo largo de 4 horas (reducido de 8 horas)
     const totalClientes = clientes.length;
-    const totalTime = 8 * 3600 * 1000; // 8 horas en ms
+    const totalTime = 4 * 3600 * 1000; // 4 horas en ms
     const delayBetweenClients = totalClientes > 0 ? totalTime / totalClientes : 0;
     console.log(`Enviando ofertas a ${totalClientes} clientes con un intervalo de ${(delayBetweenClients/1000).toFixed(2)} segundos.`);
     
-    // Función para enviar ofertas a un cliente
     async function enviarOfertasCliente(cliente) {
       const numero = `${cliente.numero}@c.us`;
       await client.sendMessage(numero, mensajeIntro);
       
-      // Seleccionar aleatoriamente 8 ofertas de la lista
+      // Seleccionar aleatoriamente 8 ofertas de la lista completa
       function getRandomPromos(promos, count) {
         const shuffled = promos.slice().sort(() => 0.5 - Math.random());
         return shuffled.slice(0, count);
@@ -193,7 +281,6 @@ app.get('/crm/send-initial-offers', async (req, res) => {
       await registrarInteraccion(cliente.numero, 'ofertaMasiva', 'Envío masivo inicial de ofertas de marzo');
     }
     
-    // Función recursiva para enviar ofertas a cada cliente con delay
     async function enviarOfertasRecursivo(index) {
       if (index >= clientes.length) return;
       await enviarOfertasCliente(clientes[index]);
@@ -212,7 +299,7 @@ app.get('/crm/send-initial-offers', async (req, res) => {
 });
 
 // -------------------------------------------------
-// 9. Otros endpoints (CRM Dashboard, etc.)
+// 10. Otros endpoints (CRM Dashboard, etc.)
 // -------------------------------------------------
 app.get('/', (req, res) => {
   res.send('WhatsApp Bot está corriendo en Amazon Linux.');
@@ -246,7 +333,7 @@ app.get('/crm', async (req, res) => {
           <div class="stat">Solicitudes de oferta: ${totalOfertasSolicitadas}</div>
           <div class="stat">Respuestas a ofertas: ${totalRespuestasOferta}</div>
           <div class="stat">Solicitudes de información: ${totalSolicitudesInfo}</div>
-          <button onclick="location.href='/crm/send-offers'">Enviar Oferta a Todos</button>
+          <button onclick="location.href='/crm/send-initial-offers'">Enviar Oferta a Todos</button>
           <h2>Lista de Clientes</h2>
           <table>
             <tr>
@@ -281,7 +368,7 @@ app.get('/crm/send-offers', async (req, res) => {
 });
 
 // -------------------------------------------------
-// 10. Endpoint para visualizar el QR
+// 11. Endpoint para visualizar el QR
 // -------------------------------------------------
 app.get('/qr', (req, res) => {
   const qrPath = path.join(__dirname, 'whatsapp-qr.png');
@@ -293,7 +380,7 @@ app.get('/qr', (req, res) => {
 });
 
 // -------------------------------------------------
-// 11. Inicializar el Cliente de WhatsApp
+// 12. Inicializar el Cliente de WhatsApp
 // -------------------------------------------------
 client.initialize();
 
