@@ -128,7 +128,7 @@ client.on('auth_failure', (msg) => {
 // -------------------------------------------------
 const userOfferState = {};
 
-// Función para cargar ofertas desde "offers.json"
+// Función para cargar ofertas desde el archivo "offers.json"
 function cargarOfertas() {
   try {
     const data = fs.readFileSync(path.join(__dirname, 'offers.json'), 'utf8');
@@ -140,22 +140,25 @@ function cargarOfertas() {
 }
 
 // -------------------------------------------------
-// 8. Evento de mensaje entrante para "oferta" y "marzo"
+// 8. Evento de mensaje entrante: procesamiento de "oferta" y "marzo"
 // -------------------------------------------------
 client.on('message', async (message) => {
   const msgText = message.body.trim().toLowerCase();
   console.debug('Mensaje entrante:', message.body);
 
-  // Si el mensaje inicia con "oferta" (para ofertas de FB Ads, etc.)
+  // Si el mensaje inicia con "oferta" (para el flujo de publicidad de FB Ads, etc.)
   if (msgText.startsWith('oferta')) {
-    // Registrar interacción de solicitud de oferta
+    // Registrar la interacción de solicitud de oferta
     await registrarInteraccion(message.from.split('@')[0], 'solicitudOferta', message.body);
+    
     try {
       await message.react('🤑');
     } catch (err) {
       console.error('Error al reaccionar:', err);
     }
+    
     registrarNumero(message.from).catch(err => console.error(err));
+    
     if (!userOfferState[message.from]) {
       await message.reply('¡Hola! Aquí tienes nuestras 8 promociones iniciales:');
       
@@ -179,7 +182,7 @@ client.on('message', async (message) => {
         firstOffers: firstBatch,
         remainingOffers: remainingBatch,
         timeout: setTimeout(async () => {
-          if (userOfferState[message.from] && userOfferState[message.from].requestCount === 1) {
+          if (userOfferState[message.from] && userOfferState[message.from].remainingOffers.length > 0) {
             await client.sendMessage(message.from, '¿Podrías mencionarme para qué modelo y año de auto deseas los productos?');
             await registrarInteraccion(message.from.split('@')[0], 'solicitudInfo', 'Seguimiento: falta información del modelo y año');
           }
@@ -201,16 +204,16 @@ client.on('message', async (message) => {
       await message.reply('Si deseas ver más ofertas, escribe "marzo".');
     }
   }
-  // Si el mensaje inicia con "marzo" (para enviar la segunda tanda de ofertas)
+  // Si el mensaje inicia con "marzo" (para enviar la segunda tanda)
   else if (msgText.startsWith('marzo')) {
-    if (userOfferState[message.from] && userOfferState[message.from].requestCount === 1) {
+    if (userOfferState[message.from] && userOfferState[message.from].remainingOffers && userOfferState[message.from].remainingOffers.length > 0) {
       if (userOfferState[message.from].timeout) {
         clearTimeout(userOfferState[message.from].timeout);
       }
-      const remaining = userOfferState[message.from].remainingOffers;
-      userOfferState[message.from].requestCount = 2;
       await message.reply('Aquí tienes más ofertas:');
-      for (const promo of remaining) {
+      // Enviar la siguiente tanda de 8 ofertas (o la cantidad que queden)
+      const offersToSend = userOfferState[message.from].remainingOffers.slice(0, 8);
+      for (const promo of offersToSend) {
         try {
           const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
           const base64Image = Buffer.from(response.data, 'binary').toString('base64');
@@ -222,6 +225,12 @@ client.on('message', async (message) => {
           console.error('Error al enviar oferta:', error);
         }
       }
+      // Remover las ofertas enviadas de la lista restante
+      userOfferState[message.from].remainingOffers = userOfferState[message.from].remainingOffers.slice(8);
+      if (userOfferState[message.from].remainingOffers.length === 0) {
+        await message.reply('Ya te hemos enviado todas las ofertas disponibles.');
+        delete userOfferState[message.from];
+      }
     } else {
       await message.reply('No hay ofertas adicionales para mostrar.');
     }
@@ -229,7 +238,7 @@ client.on('message', async (message) => {
 });
 
 // -------------------------------------------------
-// 9. Endpoint para enviar ofertas mensuales a todos los clientes (proactivo)
+// 9. Endpoint para enviar ofertas mensuales proactivamente a todos los clientes
 // -------------------------------------------------
 app.get('/crm/send-initial-offers', async (req, res) => {
   try {
@@ -239,10 +248,10 @@ app.get('/crm/send-initial-offers', async (req, res) => {
       return res.send('No hay ofertas disponibles.');
     }
     
-    // Mensaje introductorio mejorado para campaña escolar (saludo de marzo)
+    // Mensaje introductorio para campaña escolar
     const mensajeIntro = "En esta temporada de campaña escolar, entendemos la importancia de maximizar tus ahorros. Por ello, te ofrecemos descuentos exclusivos para que puedas optimizar y mejorar tu vehículo este mes. ¡Descubre nuestras ofertas especiales!";
     
-    // Distribuir el envío a lo largo de 4 horas (reducido de 8 horas)
+    // Distribuir el envío a lo largo de 4 horas
     const totalClientes = clientes.length;
     const totalTime = 4 * 3600 * 1000; // 4 horas en ms
     const delayBetweenClients = totalClientes > 0 ? totalTime / totalClientes : 0;
@@ -272,12 +281,10 @@ app.get('/crm/send-initial-offers', async (req, res) => {
         }
       }
       
-      // Invitar al cliente a solicitar más ofertas si existen más de 8
       if (ofertas.length > 8) {
         await client.sendMessage(numero, 'Si deseas ver más descuentos, escribe "marzo".');
       }
       
-      // Registrar la interacción masiva
       await registrarInteraccion(cliente.numero, 'ofertaMasiva', 'Envío masivo inicial de ofertas de marzo');
     }
     
@@ -290,7 +297,6 @@ app.get('/crm/send-initial-offers', async (req, res) => {
     }
     
     enviarOfertasRecursivo(0);
-    
     res.send('Proceso de envío de ofertas iniciales iniciado.');
   } catch (err) {
     console.error('Error en el envío masivo de ofertas iniciales:', err);
@@ -299,13 +305,8 @@ app.get('/crm/send-initial-offers', async (req, res) => {
 });
 
 // -------------------------------------------------
-// 10. Otros endpoints (CRM Dashboard, etc.)
+// 10. Dashboard CRM simple
 // -------------------------------------------------
-app.get('/', (req, res) => {
-  res.send('WhatsApp Bot está corriendo en Amazon Linux.');
-});
-
-// Dashboard CRM simple
 app.get('/crm', async (req, res) => {
   try {
     const totalClientes = await Cliente.countDocuments({});
@@ -349,21 +350,6 @@ app.get('/crm', async (req, res) => {
   } catch (err) {
     console.error('Error en el CRM dashboard:', err);
     res.status(500).send('Error generando el dashboard');
-  }
-});
-
-// Endpoint para enviar una oferta general a todos los clientes (opcional)
-app.get('/crm/send-offers', async (req, res) => {
-  try {
-    const clientes = await Cliente.find({});
-    for (let cliente of clientes) {
-      await client.sendMessage(`${cliente.numero}@c.us`, 'Oferta especial del mes: ¡No te la pierdas!');
-      await sleep(500);
-    }
-    res.send('Oferta enviada a todos los clientes.');
-  } catch (err) {
-    console.error('Error enviando oferta a todos:', err);
-    res.status(500).send('Error enviando oferta a todos los clientes');
   }
 });
 
