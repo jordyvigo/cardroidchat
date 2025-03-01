@@ -36,7 +36,7 @@ mongoose.connect('mongodb+srv://jordyvigo:Gunbound2024@cardroid.crwia.mongodb.ne
 });
 
 // -------------------------------------------------
-// 2. Definir esquema y modelo "Cliente" (colección: clientes)
+// 2. Modelo "Cliente" (colección: clientes)
 // -------------------------------------------------
 const clienteSchema = new mongoose.Schema({
   numero: { type: String, required: true, unique: true },
@@ -46,7 +46,7 @@ const clienteSchema = new mongoose.Schema({
 const Cliente = mongoose.model('Cliente', clienteSchema, 'clientes');
 
 // -------------------------------------------------
-// 3. Definir esquema y modelo para Interacciones (colección: interacciones)
+// 3. Modelo para Interacciones (colección: interacciones)
 // -------------------------------------------------
 const interaccionSchema = new mongoose.Schema({
   numero: { type: String, required: true },
@@ -64,7 +64,7 @@ async function registrarInteraccion(numero, tipo, mensaje, ofertaReferencia = nu
 }
 
 // -------------------------------------------------
-// 4. Función para registrar el número del cliente y actualizar la última interacción
+// 4. Registrar número del cliente y actualizar última interacción
 // -------------------------------------------------
 async function registrarNumero(numeroWhatsApp) {
   const numeroLimpio = numeroWhatsApp.split('@')[0];
@@ -83,7 +83,7 @@ async function registrarNumero(numeroWhatsApp) {
 }
 
 // -------------------------------------------------
-// 5. Configuración del Cliente de WhatsApp usando LocalAuth
+// 5. Configuración del Cliente de WhatsApp con LocalAuth
 // -------------------------------------------------
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
@@ -128,7 +128,7 @@ client.on('auth_failure', (msg) => {
 // -------------------------------------------------
 const userOfferState = {};
 
-// Función para cargar ofertas desde el archivo "offers.json"
+// Función para cargar ofertas desde "offers.json"
 function cargarOfertas() {
   try {
     const data = fs.readFileSync(path.join(__dirname, 'offers.json'), 'utf8');
@@ -139,26 +139,28 @@ function cargarOfertas() {
   }
 }
 
-// Función para seleccionar y eliminar aleatoriamente "count" ofertas de un arreglo
-function seleccionarYEliminarPromos(promos, count) {
-  let remaining = [...promos];
-  let selected = [];
-  while (selected.length < count && remaining.length > 0) {
-    const index = Math.floor(Math.random() * remaining.length);
-    selected.push(remaining[index]);
-    remaining.splice(index, 1);
+// Función para particionar el arreglo usando índices (sin comparar objetos)
+function particionarOfertas(ofertas, count) {
+  const indices = Array.from({ length: ofertas.length }, (_, i) => i);
+  let selectedIndices = [];
+  while (selectedIndices.length < count && indices.length > 0) {
+    const randomIndex = Math.floor(Math.random() * indices.length);
+    selectedIndices.push(indices[randomIndex]);
+    indices.splice(randomIndex, 1);
   }
-  return { selected, remaining };
+  const firstBatch = selectedIndices.map(i => ofertas[i]);
+  const remainingBatch = ofertas.filter((_, i) => !selectedIndices.includes(i));
+  return { firstBatch, remainingBatch };
 }
 
 // -------------------------------------------------
-// 8. Evento de mensaje entrante: procesamiento de "oferta" y "marzo"
+// 8. Evento de mensaje entrante: flujo "oferta" y "marzo"
 // -------------------------------------------------
 client.on('message', async (message) => {
   const msgText = message.body.trim().toLowerCase();
   console.debug('Mensaje entrante:', message.body);
 
-  // Flujo para "oferta" (p. ej., para publicidad de FB Ads)
+  // Flujo para "oferta" (inicial)
   if (msgText.startsWith('oferta')) {
     await registrarInteraccion(message.from.split('@')[0], 'solicitudOferta', message.body);
     try {
@@ -170,13 +172,14 @@ client.on('message', async (message) => {
     
     if (!userOfferState[message.from]) {
       await message.reply('¡Hola! Aquí tienes nuestras 8 promociones iniciales:');
+      
       const ofertas = cargarOfertas();
       if (ofertas.length === 0) {
         await message.reply('Actualmente no hay ofertas disponibles.');
         return;
       }
-      // Usar la función para particionar ofertas
-      const { selected: firstBatch, remaining: remainingBatch } = seleccionarYEliminarPromos(ofertas, 8);
+      
+      const { firstBatch, remainingBatch } = particionarOfertas(ofertas, 8);
       
       // Establecer timeout de seguimiento de 10 minutos
       userOfferState[message.from] = {
@@ -206,14 +209,13 @@ client.on('message', async (message) => {
       await message.reply('Si deseas ver más ofertas, escribe "marzo".');
     }
   }
-  // Flujo para "marzo": envío de la siguiente tanda
+  // Flujo para "marzo" (envío de siguiente tanda)
   else if (msgText.startsWith('marzo')) {
     if (userOfferState[message.from] && userOfferState[message.from].remainingOffers && userOfferState[message.from].remainingOffers.length > 0) {
       if (userOfferState[message.from].timeout) {
         clearTimeout(userOfferState[message.from].timeout);
       }
       await message.reply('Aquí tienes más ofertas:');
-      // Seleccionar hasta 8 ofertas de las restantes (sin reinicializar el estado completo)
       const offersToSend = userOfferState[message.from].remainingOffers.slice(0, 8);
       for (const promo of offersToSend) {
         try {
@@ -250,12 +252,11 @@ app.get('/crm/send-initial-offers', async (req, res) => {
       return res.send('No hay ofertas disponibles.');
     }
     
-    // Mensaje introductorio para campaña escolar
     const mensajeIntro = "En esta temporada de campaña escolar, entendemos la importancia de maximizar tus ahorros. Por ello, te ofrecemos descuentos exclusivos para que puedas optimizar y mejorar tu vehículo este mes. ¡Descubre nuestras ofertas especiales!";
     
     // Distribuir el envío a lo largo de 4 horas
     const totalClientes = clientes.length;
-    const totalTime = 4 * 3600 * 1000; // 4 horas en ms
+    const totalTime = 4 * 3600 * 1000;
     const delayBetweenClients = totalClientes > 0 ? totalTime / totalClientes : 0;
     console.log(`Enviando ofertas a ${totalClientes} clientes con un intervalo de ${(delayBetweenClients/1000).toFixed(2)} segundos.`);
     
