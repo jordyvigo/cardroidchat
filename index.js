@@ -50,17 +50,17 @@ const Cliente = mongoose.model('Cliente', clienteSchema, 'clientes');
 // -------------------------------------------------
 const interaccionSchema = new mongoose.Schema({
   numero: { type: String, required: true },
-  tipo: { type: String }, // Ej: "solicitudOferta", "solicitudInfo"
+  tipo: { type: String }, // Ej: "solicitudOferta", "respuestaOferta", "solicitudInfo", "ofertaMasiva"
   mensaje: { type: String },
+  ofertaReferencia: { type: String },
   createdAt: { type: Date, default: Date.now }
 });
 const Interaccion = mongoose.model('Interaccion', interaccionSchema, 'interacciones');
 
-// Función para registrar interacciones
-async function registrarInteraccion(numero, tipo, mensaje) {
-  const interaccion = new Interaccion({ numero, tipo, mensaje });
+async function registrarInteraccion(numero, tipo, mensaje, ofertaReferencia = null) {
+  const interaccion = new Interaccion({ numero, tipo, mensaje, ofertaReferencia });
   await interaccion.save();
-  console.log(`Interacción registrada: ${numero} - ${tipo}`);
+  console.log(`Interacción registrada para ${numero}: ${tipo}`);
 }
 
 // -------------------------------------------------
@@ -76,9 +76,9 @@ async function registrarNumero(numeroWhatsApp) {
   if (!cliente) {
     cliente = new Cliente({ numero: numeroLimpio, lastInteraction: new Date() });
     await cliente.save();
-    console.log(`Número ${numeroLimpio} registrado en MongoDB (colección clientes).`);
+    console.log(`Número ${numeroLimpio} registrado en MongoDB (clientes).`);
   } else {
-    console.log(`El número ${numeroLimpio} ya está registrado. Última interacción actualizada.`);
+    console.log(`Número ${numeroLimpio} actualizado (última interacción).`);
   }
 }
 
@@ -89,7 +89,7 @@ const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
   puppeteer: {
     headless: true,
-    // Si usas Google Chrome instalado, descomenta y ajusta:
+    // Descomenta la siguiente línea si deseas usar Chrome instalado en el sistema:
     // executablePath: '/usr/bin/google-chrome-stable',
     args: [
       '--no-sandbox',
@@ -105,14 +105,13 @@ const client = new Client({
 // -------------------------------------------------
 // 6. Eventos del Cliente de WhatsApp
 // -------------------------------------------------
-
 client.on('qr', async (qrCode) => {
-  console.debug('Se recibió un QR para vincular la sesión.');
+  console.debug('QR recibido.');
   try {
     await QRCode.toFile('whatsapp-qr.png', qrCode);
-    console.debug('QR Code generado en "whatsapp-qr.png". Visita /qr para visualizarlo.');
+    console.debug('QR generado en "whatsapp-qr.png".');
   } catch (err) {
-    console.error('Error al generar el QR:', err);
+    console.error('Error generando QR:', err);
   }
 });
 
@@ -129,179 +128,161 @@ client.on('auth_failure', (msg) => {
 // -------------------------------------------------
 const userOfferState = {};
 
+// Función para cargar ofertas desde el archivo "offers.json"
+function cargarOfertas() {
+  try {
+    const data = fs.readFileSync(path.join(__dirname, 'offers.json'), 'utf8');
+    return JSON.parse(data);
+  } catch (err) {
+    console.error('Error al cargar ofertas:', err);
+    return [];
+  }
+}
+
 // -------------------------------------------------
-// 8. Evento de mensaje entrante: procesamiento de ofertas
+// 8. Endpoint para enviar ofertas mensuales proactivamente a todos los clientes
 // -------------------------------------------------
-client.on('message', async (message) => {
-  console.debug('Mensaje entrante:', message.body);
-  const msgText = message.body.trim().toLowerCase();
-  
-  // Si el mensaje comienza con "oferta" o "ofertas"
-  if (msgText.startsWith('oferta')) {
-    // Registrar interacción de solicitud de oferta
-    registrarInteraccion(message.from.split('@')[0], 'solicitudOferta', message.body).catch(err => console.error(err));
-    
-    // Reaccionar con un emoji sugerente de oferta (dinero con cara)
-    try {
-      await message.react('🤑');
-    } catch (err) {
-      console.error('Error al reaccionar al mensaje:', err);
+app.get('/crm/send-initial-offers', async (req, res) => {
+  try {
+    const clientes = await Cliente.find({});
+    const ofertas = cargarOfertas();
+    if (ofertas.length === 0) {
+      return res.send('No hay ofertas disponibles.');
     }
     
-    // Si no existe estado para este usuario, es la primera solicitud.
-    if (!userOfferState[message.from]) {
-      await message.reply('¡Hola! Gracias por solicitar nuestras ofertas. Aquí tienes nuestras 8 promociones iniciales:');
-      registrarNumero(message.from).catch(err => console.error('Error al registrar número:', err));
+    // Mensaje introductorio mejorado
+    const mensajeIntro = "En esta temporada de campaña escolar, entendemos la importancia de maximizar tus ahorros. Por ello, te ofrecemos descuentos exclusivos para que puedas optimizar y mejorar tu vehículo este mes. ¡Descubre nuestras ofertas especiales!";
+    
+    // Distribuir el envío a lo largo de 8 horas
+    const totalClientes = clientes.length;
+    const totalTime = 8 * 3600 * 1000; // 8 horas en ms
+    const delayBetweenClients = totalClientes > 0 ? totalTime / totalClientes : 0;
+    console.log(`Enviando ofertas a ${totalClientes} clientes con un intervalo de ${(delayBetweenClients/1000).toFixed(2)} segundos.`);
+    
+    // Función para enviar ofertas a un cliente
+    async function enviarOfertasCliente(cliente) {
+      const numero = `${cliente.numero}@c.us`;
+      await client.sendMessage(numero, mensajeIntro);
       
-      // Definir las 16 promociones con URLs optimizadas y descripciones
-      const promociones = [
-        {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1740087453/ELEVALUNAS_cjhixl.png',
-          descripcion: 'Convierte tu sistema de elevación de lunas manual en uno eléctrico, moderniza tu vehículo ¡YA!'
-        },
-        {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1740087454/EXPLORADORAS_floky9.png',
-          descripcion: 'Mejora la iluminación de tus caminos con nuestras exploradoras led en dos colores de luz: ámbar y amarillo.'
-        },
-        {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1740087457/ALARMA_hdlqjr.png',
-          descripcion: 'Añádele seguridad a tu vehículo, con nuestra alarma que te alerta de golpes, apertura de puertas y encendido de motor. Precio con instalación.'
-        },
-        {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1740087457/GPS_qk32bj.png',
-          descripcion: 'Hazle seguimiento a tu vehículo en todo momento con nuestro GPS con APP, mira historial diario, recorrido en tiempo real y apaga el motor directamente desde tu celular.'
-        },
-        {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1740087458/LUZPARRILLA_q0f2mm.png',
-          descripcion: 'Mejora la estética frontal de tu vehículo instalándole nuestras luces de parrilla, compatibles con todos los vehículos.'
-        },
-        {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1740087458/HERTDIECI_awp2kw.png',
-          descripcion: 'Dale calidad italiana al audio de tu vehículo con nuestros componentes hertz, aprovecha la oferta exclusiva.'
-        },
-        {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1740087461/LEDS_dsgvre.png',
-          descripcion: 'Mejora la iluminación de tus faros actuales con nuestros leds de alta gama, precio incluye instalación.'
-        },
-        {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/q_auto,f_auto,w_800/v1740087461/LUZCAPOT_gnujh5.png',
-          descripcion: 'Haz lucir mejor a tu vehículo con las luces sobre el capot LED. Dale presencia en las calles.'
-        },
-        {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1740087462/PIONEER_pyhajk.png',
-          descripcion: 'Mejora el sonido de tu auto con nuestros parlantes Pioneer en oferta.'
-        },
-        {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1740087463/MIXTRACK_smuvbl.png',
-          descripcion: 'Aprovecha la oferta para mejorar los parlantes en tu vehículo.'
-        },
-        {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1740087465/SIRENARETRO_isdrjd.png',
-          descripcion: 'Añádele seguridad a tu retroceso con la sirena de retro, que avisará a todos que estás retrocediendo.'
-        },
-        {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1740087466/RADIO_av6qls.png',
-          descripcion: 'Añade entretenimiento a tu vehículo con nuestras radios con YouTube, Netflix, TV en vivo y más. Incluye cámara de retroceso e instalación.'
-        },
-        {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1740087466/TRABAGAS_qla6af.png',
-          descripcion: 'Haz que tu vehículo se apague al bajarte, con nuestro trabagas. Precio incluye instalación.'
-        },
-        {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1740087466/RADIOCONSOLA_wr2ndh.png',
-          descripcion: 'Mejora el entretenimiento de tu auto y dale estética a tu tablero, con nuestra radio android con máscara de encaje exacto para tu vehículo.'
-        },
-        {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1740087466/FAROSFORCE_wicpqc.png',
-          descripcion: 'Triplica la potencia de tus luces actuales con nuestros faros force de 7 pulgadas, originales y resistentes al agua.'
-        },
-        {
-          url: 'https://res.cloudinary.com/do1ryjvol/image/upload/v1740087467/MINIFORCE_gm6j8t.png',
-          descripcion: 'Mejora la iluminación de tu auto con nuestros faros mini force, compatibles con cualquier vehículo.'
-        }
-      ];
-
-      // Seleccionar aleatoriamente 8 promociones para la primera tanda
+      // Seleccionar aleatoriamente 8 ofertas de la lista
       function getRandomPromos(promos, count) {
         const shuffled = promos.slice().sort(() => 0.5 - Math.random());
         return shuffled.slice(0, count);
       }
-      const firstBatch = getRandomPromos(promociones, 8);
-      const remainingBatch = promociones.filter(promo => !firstBatch.includes(promo));
-
-      // Guardar estado para este usuario y establecer timeout de seguimiento (10 minutos)
-      userOfferState[message.from] = {
-        requestCount: 1,
-        firstOffers: firstBatch,
-        remainingOffers: remainingBatch,
-        timeout: setTimeout(async () => {
-          if (userOfferState[message.from] && userOfferState[message.from].requestCount === 1) {
-            await client.sendMessage(message.from, '¿Podrías mencionarme para qué modelo y año de auto deseas los productos?');
-          }
-        }, 10 * 60 * 1000)
-      };
-
-      // Enviar las 8 ofertas iniciales
-      for (const promo of firstBatch) {
+      const selectedOffers = getRandomPromos(ofertas, 8);
+      
+      for (const oferta of selectedOffers) {
         try {
-          console.debug('Procesando promoción:', promo.descripcion);
-          const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
+          const response = await axios.get(oferta.url, { responseType: 'arraybuffer' });
           const base64Image = Buffer.from(response.data, 'binary').toString('base64');
           const mimeType = response.headers['content-type'];
-          const media = new MessageMedia(mimeType, base64Image, 'promocion.png');
-          
-          await client.sendMessage(message.from, media, { caption: promo.descripcion });
-          console.debug('Oferta enviada:', promo.descripcion);
-          await sleep(2000);
-        } catch (error) {
-          console.error('Error al enviar promoción:', error);
-        }
-      }
-      await message.reply('Si deseas ver más ofertas, escribe "oferta" otra vez.');
-    } else if (userOfferState[message.from].requestCount === 1) {
-      // Segunda solicitud: enviar las ofertas restantes y cancelar timeout
-      if (userOfferState[message.from].timeout) {
-        clearTimeout(userOfferState[message.from].timeout);
-      }
-      const remaining = userOfferState[message.from].remainingOffers;
-      userOfferState[message.from].requestCount = 2;
-      await message.reply('Aquí tienes más ofertas:');
-      for (const promo of remaining) {
-        try {
-          console.debug('Procesando promoción restante:', promo.descripcion);
-          const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
-          const base64Image = Buffer.from(response.data, 'binary').toString('base64');
-          const mimeType = response.headers['content-type'];
-          const media = new MessageMedia(mimeType, base64Image, 'promocion.png');
-          
-          await client.sendMessage(message.from, media, { caption: promo.descripcion });
-          console.debug('Oferta enviada:', promo.descripcion);
+          const media = new MessageMedia(mimeType, base64Image, 'oferta.png');
+          await client.sendMessage(numero, media, { caption: oferta.descripcion });
           await sleep(1500);
         } catch (error) {
-          console.error('Error al enviar promoción:', error);
+          console.error(`Error al enviar oferta a ${cliente.numero}:`, error);
         }
       }
-    } else {
-      await message.reply('Ya te hemos enviado todas las ofertas disponibles.');
-      // Reiniciar el estado para permitir un nuevo ciclo
-      delete userOfferState[message.from];
+      
+      // Invitar al cliente a solicitar más ofertas si existen más de 8
+      if (ofertas.length > 8) {
+        await client.sendMessage(numero, 'Si deseas ver más descuentos, escribe "marzo".');
+      }
+      
+      // Registrar la interacción masiva
+      await registrarInteraccion(cliente.numero, 'ofertaMasiva', 'Envío masivo inicial de ofertas de marzo');
     }
+    
+    // Función recursiva para enviar ofertas a cada cliente con delay
+    async function enviarOfertasRecursivo(index) {
+      if (index >= clientes.length) return;
+      await enviarOfertasCliente(clientes[index]);
+      setTimeout(() => {
+        enviarOfertasRecursivo(index + 1);
+      }, delayBetweenClients);
+    }
+    
+    enviarOfertasRecursivo(0);
+    
+    res.send('Proceso de envío de ofertas iniciales iniciado.');
+  } catch (err) {
+    console.error('Error en el envío masivo de ofertas iniciales:', err);
+    res.status(500).send('Error en el envío masivo de ofertas.');
   }
 });
 
 // -------------------------------------------------
-// 9. Inicializar el Cliente de WhatsApp
-// -------------------------------------------------
-client.initialize();
-
-// -------------------------------------------------
-// 10. Servidor Express para mantener la app activa y mostrar el CRM
+// 9. Otros endpoints (CRM Dashboard, etc.)
 // -------------------------------------------------
 app.get('/', (req, res) => {
   res.send('WhatsApp Bot está corriendo en Amazon Linux.');
 });
 
-// Endpoint para visualizar el QR (archivo PNG)
+// Dashboard CRM simple
+app.get('/crm', async (req, res) => {
+  try {
+    const totalClientes = await Cliente.countDocuments({});
+    const totalOfertasSolicitadas = await Interaccion.countDocuments({ tipo: "solicitudOferta" });
+    const totalRespuestasOferta = await Interaccion.countDocuments({ tipo: "respuestaOferta" });
+    const totalSolicitudesInfo = await Interaccion.countDocuments({ tipo: "solicitudInfo" });
+    const clientes = await Cliente.find({}).select('numero lastInteraction -_id').lean();
+    
+    const html = `
+      <html>
+        <head>
+          <title>CRM Dashboard</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            .stat { margin-bottom: 10px; }
+            table { border-collapse: collapse; width: 80%; margin-top: 20px; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+            th { background-color: #f2f2f2; }
+            button { padding: 10px 20px; font-size: 16px; }
+          </style>
+        </head>
+        <body>
+          <h1>CRM Dashboard</h1>
+          <div class="stat">Clientes registrados: ${totalClientes}</div>
+          <div class="stat">Solicitudes de oferta: ${totalOfertasSolicitadas}</div>
+          <div class="stat">Respuestas a ofertas: ${totalRespuestasOferta}</div>
+          <div class="stat">Solicitudes de información: ${totalSolicitudesInfo}</div>
+          <button onclick="location.href='/crm/send-offers'">Enviar Oferta a Todos</button>
+          <h2>Lista de Clientes</h2>
+          <table>
+            <tr>
+              <th>Número</th>
+              <th>Última Interacción</th>
+            </tr>
+            ${clientes.map(cliente => `<tr><td>${cliente.numero}</td><td>${new Date(cliente.lastInteraction).toLocaleString()}</td></tr>`).join('')}
+          </table>
+        </body>
+      </html>
+    `;
+    res.send(html);
+  } catch (err) {
+    console.error('Error en el CRM dashboard:', err);
+    res.status(500).send('Error generando el dashboard');
+  }
+});
+
+// Endpoint para enviar una oferta general a todos los clientes (opcional)
+app.get('/crm/send-offers', async (req, res) => {
+  try {
+    const clientes = await Cliente.find({});
+    for (let cliente of clientes) {
+      await client.sendMessage(`${cliente.numero}@c.us`, 'Oferta especial del mes: ¡No te la pierdas!');
+      await sleep(500);
+    }
+    res.send('Oferta enviada a todos los clientes.');
+  } catch (err) {
+    console.error('Error enviando oferta a todos:', err);
+    res.status(500).send('Error enviando oferta a todos los clientes');
+  }
+});
+
+// -------------------------------------------------
+// 10. Endpoint para visualizar el QR
+// -------------------------------------------------
 app.get('/qr', (req, res) => {
   const qrPath = path.join(__dirname, 'whatsapp-qr.png');
   if (fs.existsSync(qrPath)) {
@@ -311,50 +292,10 @@ app.get('/qr', (req, res) => {
   }
 });
 
-// CRM Dashboard
-app.get('/crm', async (req, res) => {
-  try {
-    const totalClientes = await Cliente.countDocuments({});
-    const totalOfertasSolicitadas = await Interaccion.countDocuments({ tipo: "solicitudOferta" });
-    const totalSolicitudesInfo = await Interaccion.countDocuments({ tipo: "solicitudInfo" });
-    const html = `
-      <html>
-        <head>
-          <title>CRM Dashboard</title>
-          <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            .stat { margin-bottom: 10px; }
-            button { padding: 10px 20px; font-size: 16px; }
-          </style>
-        </head>
-        <body>
-          <h1>CRM Dashboard</h1>
-          <div class="stat">Número de clientes registrados: ${totalClientes}</div>
-          <div class="stat">Solicitudes de oferta: ${totalOfertasSolicitadas}</div>
-          <div class="stat">Solicitudes de más información: ${totalSolicitudesInfo}</div>
-          <button onclick="location.href='/crm/send-offers'">Enviar Oferta a Todos</button>
-        </body>
-      </html>
-    `;
-    res.send(html);
-  } catch (err) {
-    res.status(500).send('Error generando el dashboard');
-  }
-});
-
-// Endpoint para enviar un mensaje de oferta a todos los clientes
-app.get('/crm/send-offers', async (req, res) => {
-  try {
-    const clientes = await Cliente.find({});
-    for (let cliente of clientes) {
-      await client.sendMessage(`${cliente.numero}@c.us`, 'Oferta especial del mes: ¡No te la pierdas!');
-      await sleep(500);
-    }
-    res.send('Ofertas enviadas a todos los clientes.');
-  } catch (err) {
-    res.status(500).send('Error enviando ofertas a todos los clientes');
-  }
-});
+// -------------------------------------------------
+// 11. Inicializar el Cliente de WhatsApp
+// -------------------------------------------------
+client.initialize();
 
 app.listen(PORT, () => {
   console.debug(`Servidor corriendo en el puerto ${PORT}`);
