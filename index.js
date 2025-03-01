@@ -139,6 +139,18 @@ function cargarOfertas() {
   }
 }
 
+// Función para particionar aleatoriamente el arreglo de ofertas
+function particionarOfertas(ofertas, count) {
+  let remaining = [...ofertas];
+  const firstBatch = [];
+  while (firstBatch.length < count && remaining.length > 0) {
+    const index = Math.floor(Math.random() * remaining.length);
+    firstBatch.push(remaining[index]);
+    remaining.splice(index, 1);
+  }
+  return { firstBatch, remainingBatch: remaining };
+}
+
 // -------------------------------------------------
 // 8. Evento de mensaje entrante: procesamiento de "oferta" y "marzo"
 // -------------------------------------------------
@@ -146,36 +158,25 @@ client.on('message', async (message) => {
   const msgText = message.body.trim().toLowerCase();
   console.debug('Mensaje entrante:', message.body);
 
-  // Si el mensaje inicia con "oferta" (para el flujo de publicidad de FB Ads, etc.)
+  // Si el mensaje inicia con "oferta" (para el flujo de publicidad, FB Ads, etc.)
   if (msgText.startsWith('oferta')) {
-    // Registrar la interacción de solicitud de oferta
     await registrarInteraccion(message.from.split('@')[0], 'solicitudOferta', message.body);
-    
     try {
       await message.react('🤑');
     } catch (err) {
       console.error('Error al reaccionar:', err);
     }
-    
     registrarNumero(message.from).catch(err => console.error(err));
-    
+
     if (!userOfferState[message.from]) {
       await message.reply('¡Hola! Aquí tienes nuestras 8 promociones iniciales:');
-      
       const ofertas = cargarOfertas();
       if (ofertas.length === 0) {
         await message.reply('Actualmente no hay ofertas disponibles.');
         return;
       }
-      
-      // Seleccionar aleatoriamente 8 ofertas para la primera tanda
-      function getRandomPromos(promos, count) {
-        const shuffled = promos.slice().sort(() => 0.5 - Math.random());
-        return shuffled.slice(0, count);
-      }
-      const firstBatch = getRandomPromos(ofertas, 8);
-      const remainingBatch = ofertas.filter(promo => !firstBatch.includes(promo));
-      
+      // Particionar el arreglo de ofertas en 8 y el resto
+      const { firstBatch, remainingBatch } = particionarOfertas(ofertas, 8);
       // Establecer timeout de seguimiento de 10 minutos
       userOfferState[message.from] = {
         requestCount: 1,
@@ -188,7 +189,7 @@ client.on('message', async (message) => {
           }
         }, 10 * 60 * 1000)
       };
-      
+
       for (const promo of firstBatch) {
         try {
           const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
@@ -204,14 +205,14 @@ client.on('message', async (message) => {
       await message.reply('Si deseas ver más ofertas, escribe "marzo".');
     }
   }
-  // Si el mensaje inicia con "marzo" (para enviar la segunda tanda)
+  // Si el mensaje inicia con "marzo" (para enviar la siguiente tanda)
   else if (msgText.startsWith('marzo')) {
     if (userOfferState[message.from] && userOfferState[message.from].remainingOffers && userOfferState[message.from].remainingOffers.length > 0) {
       if (userOfferState[message.from].timeout) {
         clearTimeout(userOfferState[message.from].timeout);
       }
       await message.reply('Aquí tienes más ofertas:');
-      // Enviar la siguiente tanda de 8 ofertas (o la cantidad que queden)
+      // Seleccionar la siguiente tanda de 8 ofertas (o lo que quede)
       const offersToSend = userOfferState[message.from].remainingOffers.slice(0, 8);
       for (const promo of offersToSend) {
         try {
@@ -238,7 +239,7 @@ client.on('message', async (message) => {
 });
 
 // -------------------------------------------------
-// 9. Endpoint para enviar ofertas mensuales proactivamente a todos los clientes
+// 9. Endpoint para enviar ofertas mensuales a todos los clientes (proactivo)
 // -------------------------------------------------
 app.get('/crm/send-initial-offers', async (req, res) => {
   try {
@@ -266,15 +267,15 @@ app.get('/crm/send-initial-offers', async (req, res) => {
         const shuffled = promos.slice().sort(() => 0.5 - Math.random());
         return shuffled.slice(0, count);
       }
-      const selectedOffers = getRandomPromos(ofertas, 8);
+      const { firstBatch, remainingBatch } = particionarOfertas(ofertas, 8);
       
-      for (const oferta of selectedOffers) {
+      for (const promo of firstBatch) {
         try {
-          const response = await axios.get(oferta.url, { responseType: 'arraybuffer' });
+          const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
           const base64Image = Buffer.from(response.data, 'binary').toString('base64');
           const mimeType = response.headers['content-type'];
           const media = new MessageMedia(mimeType, base64Image, 'oferta.png');
-          await client.sendMessage(numero, media, { caption: oferta.descripcion });
+          await client.sendMessage(numero, media, { caption: promo.descripcion });
           await sleep(1500);
         } catch (error) {
           console.error(`Error al enviar oferta a ${cliente.numero}:`, error);
