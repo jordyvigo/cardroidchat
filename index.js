@@ -64,7 +64,7 @@ async function registrarInteraccion(numero, tipo, mensaje, ofertaReferencia = nu
 }
 
 // -------------------------------------------------
-// 4. Registrar número del cliente y actualizar última interacción
+// 4. Función para registrar el número del cliente y actualizar última interacción
 // -------------------------------------------------
 async function registrarNumero(numeroWhatsApp) {
   const numeroLimpio = numeroWhatsApp.split('@')[0];
@@ -83,7 +83,7 @@ async function registrarNumero(numeroWhatsApp) {
 }
 
 // -------------------------------------------------
-// 5. Configuración del Cliente de WhatsApp con LocalAuth
+// 5. Configuración del Cliente de WhatsApp usando LocalAuth
 // -------------------------------------------------
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
@@ -139,7 +139,7 @@ function cargarOfertas() {
   }
 }
 
-// Función para particionar el arreglo usando índices (sin comparar objetos)
+// Función para particionar ofertas usando índices
 function particionarOfertas(ofertas, count) {
   const indices = Array.from({ length: ofertas.length }, (_, i) => i);
   let selectedIndices = [];
@@ -154,14 +154,15 @@ function particionarOfertas(ofertas, count) {
 }
 
 // -------------------------------------------------
-// 8. Evento de mensaje entrante: flujo "oferta" y "marzo"
+// 8. Evento de mensaje entrante: procesamiento de "oferta" y "marzo"
 // -------------------------------------------------
 client.on('message', async (message) => {
+  // Convertir a minúsculas para comparación sin importar mayúsculas/minúsculas
   const msgText = message.body.trim().toLowerCase();
   console.debug('Mensaje entrante:', message.body);
 
-  // Flujo para "oferta" (inicial)
-  if (msgText.startsWith('oferta')) {
+  // Flujo para el mensaje inicial "oferta"
+  if (msgText === 'oferta') {
     await registrarInteraccion(message.from.split('@')[0], 'solicitudOferta', message.body);
     try {
       await message.react('🤑');
@@ -209,12 +210,13 @@ client.on('message', async (message) => {
       await message.reply('Si deseas ver más ofertas, escribe "marzo".');
     }
   }
-  // Flujo para "marzo" (envío de siguiente tanda)
-  else if (msgText.startsWith('marzo')) {
+  // Flujo para el mensaje "marzo"
+  else if (msgText === 'marzo') {
     if (userOfferState[message.from] && userOfferState[message.from].remainingOffers && userOfferState[message.from].remainingOffers.length > 0) {
       if (userOfferState[message.from].timeout) {
         clearTimeout(userOfferState[message.from].timeout);
       }
+      console.debug("Remaining offers count:", userOfferState[message.from].remainingOffers.length);
       await message.reply('Aquí tienes más ofertas:');
       const offersToSend = userOfferState[message.from].remainingOffers.slice(0, 8);
       for (const promo of offersToSend) {
@@ -229,7 +231,7 @@ client.on('message', async (message) => {
           console.error('Error al enviar oferta:', error);
         }
       }
-      // Actualizar el estado: remover las ofertas enviadas
+      // Remover las ofertas enviadas de la lista restante
       userOfferState[message.from].remainingOffers = userOfferState[message.from].remainingOffers.slice(8);
       if (userOfferState[message.from].remainingOffers.length === 0) {
         await message.reply('Ya te hemos enviado todas las ofertas disponibles.');
@@ -256,7 +258,7 @@ app.get('/crm/send-initial-offers', async (req, res) => {
     
     // Distribuir el envío a lo largo de 4 horas
     const totalClientes = clientes.length;
-    const totalTime = 4 * 3600 * 1000;
+    const totalTime = 4 * 3600 * 1000; // 4 horas en ms
     const delayBetweenClients = totalClientes > 0 ? totalTime / totalClientes : 0;
     console.log(`Enviando ofertas a ${totalClientes} clientes con un intervalo de ${(delayBetweenClients/1000).toFixed(2)} segundos.`);
     
