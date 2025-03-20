@@ -74,11 +74,8 @@ function getReport(reportType) {
         let totalGastos = 0;
         filtered.forEach(row => {
           const amount = parseFloat(row.Monto);
-          if (row.Tipo.toLowerCase() === 'venta') {
-            totalVentas += amount;
-          } else if (row.Tipo.toLowerCase() === 'gasto') {
-            totalGastos += amount;
-          }
+          if (row.Tipo.toLowerCase() === 'venta') totalVentas += amount;
+          else if (row.Tipo.toLowerCase() === 'gasto') totalGastos += amount;
         });
         const balance = totalVentas - totalGastos;
         let report = `Reporte ${reportType}:\n`;
@@ -93,7 +90,7 @@ function getReport(reportType) {
 }
 
 /* --------------------------------------
-   Manejo de Errores
+   Manejo de Errores Global
 -------------------------------------- */
 process.on('uncaughtException', err => console.error('Uncaught Exception:', err));
 process.on('unhandledRejection', (reason, promise) =>
@@ -225,7 +222,10 @@ async function registrarNumero(numeroWhatsApp) {
 }
 
 /* --------------------------------------
-   Agregar Garantía
+   Agregar Garantía (solo admin)
+   Formato: "agregar <producto> <número> [<placa>] [<fecha>] [shh]"
+   La información obligatoria es producto y número.
+   Los parámetros [placa], [fecha] y [shh] son opcionales.
 -------------------------------------- */
 async function agregarGarantia(texto) {
   console.log('Comando agregar:', texto);
@@ -240,7 +240,6 @@ async function agregarGarantia(texto) {
     console.log('Modo silencioso (shh) activado');
   }
 
-  // Se necesitan al menos 2 tokens: [producto ...] y [número]
   if (tokens.length < 2) {
     throw new Error('Formato incorrecto. Ejemplo: agregar radio Android 999888777 [ABC123] [31/03/2023] [shh]');
   }
@@ -273,12 +272,10 @@ async function agregarGarantia(texto) {
   }
   console.log('Número final:', phone);
 
-  // Calcular fecha de expiración 1 año después
   const startDate = parseDateDDMMYYYY(fechaStr);
   const expDate = new Date(startDate.getFullYear() + 1, startDate.getMonth(), startDate.getDate());
   const fechaExpiracion = formatDateDDMMYYYY(expDate);
 
-  // Insertar nuevo registro (permitimos múltiples garantías)
   const newRecord = new Comprador({
     numero: phone,
     producto: product,
@@ -300,7 +297,8 @@ async function agregarGarantia(texto) {
 }
 
 /* --------------------------------------
-   Programar Mensaje
+   Programar Mensaje (solo admin)
+   Formato: "programar <mensaje> <fecha> <número>"
 -------------------------------------- */
 async function programarMensaje(texto) {
   console.log('Comando programar:', texto);
@@ -325,7 +323,7 @@ async function programarMensaje(texto) {
 }
 
 /* --------------------------------------
-   Configuración de WhatsApp Web
+   Configuración de WhatsApp Web (LocalAuth)
 -------------------------------------- */
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
@@ -396,7 +394,7 @@ client.on('message', async (message) => {
   const msgText = message.body.trim().toLowerCase();
   console.debug('Mensaje recibido:', message.body);
   const sender = message.from.split('@')[0].replace('+', '');
-  const adminNumber = "51931367147"; // Cambia este número si tu admin es otro
+  const adminNumber = "51931367147"; // Número de admin hardcodeado
 
   /* ----- Comando AYUDA (solo admin) ----- */
   if (msgText === 'ayuda') {
@@ -429,9 +427,7 @@ client.on('message', async (message) => {
    Ejemplo: enviar oferta 932426069
 
 8. **enviar archivo <número>**: El admin envía un archivo adjunto a un número específico.
-   Ejemplo: enviar archivo 932426069
-
-Recuerda que los comandos son sensibles al formato (usa espacios correctamente).`;
+   Ejemplo: enviar archivo 932426069`;
     await message.reply(helpText);
     return;
   }
@@ -481,18 +477,13 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
       }
       return;
     }
-
-    /* ----- Comando GASTO/VENTA (solo admin) ----- */
     if (msgText.startsWith('gasto') || msgText.startsWith('venta')) {
       await registrarTransaccionCSV(message.body);
       await message.reply('Transacción registrada.');
       return;
     }
 
-    /* -----------------------------------------
-       Comando ENVIAR OFERTA (solo admin)
-       Implementación con getNumberId()
-    ----------------------------------------- */
+    /* ----- Comando ENVIAR OFERTA (solo admin) ----- */
     if (msgText.startsWith('enviar oferta')) {
       console.log('Comando enviar oferta recibido:', message.body);
       if (sender !== adminNumber) {
@@ -507,16 +498,14 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
         return;
       }
       let target = tokens[2];
-      // Ajustar prefijo +51 si no lo tiene
       if (!target.startsWith('+')) {
         target = '+51' + target;
       }
       console.log('Número final para oferta:', target);
 
-      // Verificar si WhatsApp reconoce el número
+      // Verificar con getNumberId()
       const numberId = await client.getNumberId(target);
       console.log('getNumberId devuelto por WhatsApp:', numberId);
-
       if (!numberId) {
         await message.reply('Este número no está en WhatsApp o no se pudo verificar.');
         return;
@@ -527,18 +516,14 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
         await message.reply('No hay ofertas disponibles.');
         return;
       }
-
-      // Seleccionamos 8 ofertas aleatorias
       function getRandomPromos(promos, count) {
         const shuffled = promos.slice().sort(() => 0.5 - Math.random());
         return shuffled.slice(0, count);
       }
       const selectedOffers = getRandomPromos(ofertas, 8);
-
       console.log('Enviando saludo inicial a:', numberId._serialized);
       await client.sendMessage(numberId._serialized, '¡Hola! Aquí tienes nuestras promociones:');
 
-      // Enviamos cada oferta con un delay
       for (const promo of selectedOffers) {
         try {
           console.log('Enviando oferta a:', numberId._serialized, '->', promo.descripcion);
@@ -556,10 +541,7 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
       return;
     }
 
-    /* -----------------------------------------
-       Comando ENVIAR ARCHIVO (solo admin)
-       Implementación con getNumberId()
-    ----------------------------------------- */
+    /* ----- Comando ENVIAR ARCHIVO (solo admin) ----- */
     if (msgText.startsWith('enviar archivo')) {
       console.log('Comando enviar archivo recibido:', message.body);
       if (sender !== adminNumber) {
@@ -578,16 +560,12 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
         target = '+51' + target;
       }
       console.log('Número final para archivo:', target);
-
-      // Verificar si WhatsApp reconoce el número
       const numberId = await client.getNumberId(target);
       console.log('getNumberId devuelto por WhatsApp (archivo):', numberId);
-
       if (!numberId) {
         await message.reply('Este número no está en WhatsApp o no se pudo verificar.');
         return;
       }
-
       if (!message.hasMedia) {
         await message.reply('No se encontró ningún archivo adjunto en tu mensaje.');
         return;
@@ -609,8 +587,7 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
   if (msgText === 'garantia') {
     const numeroCliente = message.from.split('@')[0];
     console.log('Comando garantia recibido de:', numeroCliente);
-
-    // Nota: si guardaste con +51 en la BD, añade +51 aquí:
+    // Si en la BD se guardaron números con prefijo +51, lo concatenamos
     const garantias = await Comprador.find({ numero: '+51' + numeroCliente });
     if (!garantias || garantias.length === 0) {
       await message.reply('No tienes garantías vigentes registradas.');
@@ -704,7 +681,7 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
 });
 
 /* --------------------------------------
-   Endpoint para enviar ofertas masivas
+   Endpoint para enviar ofertas masivas a todos los clientes (proactivo)
 -------------------------------------- */
 app.get('/crm/send-initial-offers', async (req, res) => {
   try {
@@ -805,7 +782,7 @@ app.get('/crm', async (req, res) => {
 });
 
 /* --------------------------------------
-   Endpoint para descargar el CSV
+   Endpoint para descargar el CSV de transacciones
 -------------------------------------- */
 app.get('/crm/export-transactions', (req, res) => {
   if (fs.existsSync(csvFilePath)) {
@@ -816,7 +793,19 @@ app.get('/crm/export-transactions', (req, res) => {
 });
 
 /* --------------------------------------
-   Recordatorio diario de garantías
+   Endpoint para visualizar el QR
+-------------------------------------- */
+app.get('/qr', (req, res) => {
+  const qrPath = path.join(__dirname, 'whatsapp-qr.png');
+  if (fs.existsSync(qrPath)) {
+    res.sendFile(qrPath);
+  } else {
+    res.status(404).send('El archivo QR no existe o aún no se ha generado.');
+  }
+});
+
+/* --------------------------------------
+   Recordatorio diario de garantías (08:00 AM)
 -------------------------------------- */
 schedule.scheduleJob('0 8 * * *', async function() {
   const today = new Date();
