@@ -153,7 +153,7 @@ async function registrarInteraccion(numero, tipo, mensaje, ofertaReferencia = nu
 const compradorSchema = new mongoose.Schema({
   numero: { type: String, required: true },
   producto: { type: String, required: true },
-  placa: { type: String }, // 6 caracteres
+  placa: { type: String },
   fechaInicio: { type: String, required: true },
   fechaExpiracion: { type: String, required: true }
 });
@@ -205,7 +205,7 @@ async function registrarTransaccionCSV(texto) {
 }
 
 /* --------------------------------------
-   Registrar o actualizar Cliente
+   Registrar/Actualizar Cliente
 -------------------------------------- */
 async function registrarNumero(numeroWhatsApp) {
   const numeroLimpio = numeroWhatsApp.split('@')[0];
@@ -232,7 +232,7 @@ async function agregarGarantia(texto) {
   const tokens = texto.trim().split(' ');
   console.log('Tokens parseados:', tokens);
 
-  tokens.shift(); // quitar la palabra "agregar"
+  tokens.shift(); // quitar "agregar"
   let silent = false;
   if (tokens[tokens.length - 1] && tokens[tokens.length - 1].toLowerCase() === 'shh') {
     silent = true;
@@ -240,7 +240,7 @@ async function agregarGarantia(texto) {
     console.log('Modo silencioso (shh) activado');
   }
 
-  // Se necesitan al menos 2 tokens: [producto + ...] y [número]
+  // Se necesitan al menos 2 tokens: [producto ...] y [número]
   if (tokens.length < 2) {
     throw new Error('Formato incorrecto. Ejemplo: agregar radio Android 999888777 [ABC123] [31/03/2023] [shh]');
   }
@@ -250,30 +250,24 @@ async function agregarGarantia(texto) {
   const dateRegex = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/;
   const plateRegex = /^[A-Za-z0-9]{6}$/;
 
-  // Si el último token coincide con una fecha, la tomamos
   if (dateRegex.test(tokens[tokens.length - 1])) {
     fechaStr = tokens.pop();
     console.log('Fecha detectada:', fechaStr);
   }
-
-  // Si el penúltimo token coincide con placa, la tomamos
   if (tokens.length >= 2 && plateRegex.test(tokens[tokens.length - 1])) {
     plate = tokens.pop();
     console.log('Placa detectada:', plate);
   }
-
-  // Ahora el último token debe ser el número
   if (tokens.length < 1) {
     throw new Error('No se encontró el número de teléfono.');
   }
   let phone = tokens.pop();
   console.log('Teléfono parseado:', phone);
 
-  // El resto de tokens es el nombre del producto
   const product = tokens.join(' ');
   console.log('Producto parseado:', product);
 
-  // Ajustar prefijo +51
+  // Ajustar prefijo +51 si no lo tiene
   if (!phone.startsWith('+')) {
     phone = '+51' + phone;
   }
@@ -349,7 +343,7 @@ const client = new Client({
 });
 
 /* --------------------------------------
-   Eventos del Cliente de WhatsApp
+   Eventos de WhatsApp
 -------------------------------------- */
 client.on('qr', async (qrCode) => {
   console.debug('QR recibido.');
@@ -495,7 +489,10 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
       return;
     }
 
-    /* ----- Comando ENVIAR OFERTA (solo admin) ----- */
+    /* -----------------------------------------
+       Comando ENVIAR OFERTA (solo admin)
+       Implementación con getNumberId()
+    ----------------------------------------- */
     if (msgText.startsWith('enviar oferta')) {
       console.log('Comando enviar oferta recibido:', message.body);
       if (sender !== adminNumber) {
@@ -510,10 +507,20 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
         return;
       }
       let target = tokens[2];
+      // Ajustar prefijo +51 si no lo tiene
       if (!target.startsWith('+')) {
         target = '+51' + target;
       }
       console.log('Número final para oferta:', target);
+
+      // Verificar si WhatsApp reconoce el número
+      const numberId = await client.getNumberId(target);
+      console.log('getNumberId devuelto por WhatsApp:', numberId);
+
+      if (!numberId) {
+        await message.reply('Este número no está en WhatsApp o no se pudo verificar.');
+        return;
+      }
 
       const ofertas = cargarOfertas();
       if (ofertas.length === 0) {
@@ -528,18 +535,18 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
       }
       const selectedOffers = getRandomPromos(ofertas, 8);
 
-      console.log('Enviando saludo inicial a:', target);
-      await client.sendMessage(target + '@c.us', '¡Hola! Aquí tienes nuestras promociones:');
+      console.log('Enviando saludo inicial a:', numberId._serialized);
+      await client.sendMessage(numberId._serialized, '¡Hola! Aquí tienes nuestras promociones:');
 
       // Enviamos cada oferta con un delay
       for (const promo of selectedOffers) {
         try {
-          console.log('Enviando oferta a:', target, '->', promo.descripcion);
+          console.log('Enviando oferta a:', numberId._serialized, '->', promo.descripcion);
           const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
           const base64Image = Buffer.from(response.data, 'binary').toString('base64');
           const mimeType = response.headers['content-type'];
           const media = new MessageMedia(mimeType, base64Image, 'oferta.png');
-          await client.sendMessage(target + '@c.us', media, { caption: promo.descripcion });
+          await client.sendMessage(numberId._serialized, media, { caption: promo.descripcion });
           await sleep(1500);
         } catch (error) {
           console.error('Error al enviar oferta:', error);
@@ -549,7 +556,10 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
       return;
     }
 
-    /* ----- Comando ENVIAR ARCHIVO (solo admin) ----- */
+    /* -----------------------------------------
+       Comando ENVIAR ARCHIVO (solo admin)
+       Implementación con getNumberId()
+    ----------------------------------------- */
     if (msgText.startsWith('enviar archivo')) {
       console.log('Comando enviar archivo recibido:', message.body);
       if (sender !== adminNumber) {
@@ -569,14 +579,23 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
       }
       console.log('Número final para archivo:', target);
 
+      // Verificar si WhatsApp reconoce el número
+      const numberId = await client.getNumberId(target);
+      console.log('getNumberId devuelto por WhatsApp (archivo):', numberId);
+
+      if (!numberId) {
+        await message.reply('Este número no está en WhatsApp o no se pudo verificar.');
+        return;
+      }
+
       if (!message.hasMedia) {
         await message.reply('No se encontró ningún archivo adjunto en tu mensaje.');
         return;
       }
       try {
         const media = await message.downloadMedia();
-        console.log('Enviando archivo a:', target);
-        await client.sendMessage(target + '@c.us', media, { caption: 'Archivo enviado desde el admin.' });
+        console.log('Enviando archivo a:', numberId._serialized);
+        await client.sendMessage(numberId._serialized, media, { caption: 'Archivo enviado desde el admin.' });
         await message.reply(`Archivo enviado al número ${target}.`);
       } catch (err) {
         console.error('Error al enviar archivo:', err);
@@ -591,6 +610,7 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
     const numeroCliente = message.from.split('@')[0];
     console.log('Comando garantia recibido de:', numeroCliente);
 
+    // Nota: si guardaste con +51 en la BD, añade +51 aquí:
     const garantias = await Comprador.find({ numero: '+51' + numeroCliente });
     if (!garantias || garantias.length === 0) {
       await message.reply('No tienes garantías vigentes registradas.');
@@ -607,7 +627,7 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
     return;
   }
 
-  /* ----- Flujo de OFERTA/MARZO (usuarios generales) ----- */
+  /* ----- Flujo OFERTA/MARZO (usuarios generales) ----- */
   if (msgText === 'oferta') {
     console.log('Comando oferta recibido de:', sender);
     await registrarInteraccion(message.from.split('@')[0], 'solicitudOferta', message.body);
