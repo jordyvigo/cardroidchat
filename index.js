@@ -13,17 +13,22 @@ const schedule = require('node-schedule');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ----------------------
-// Helper Functions
-// ----------------------
+/* --------------------------------------
+   Helper Functions
+-------------------------------------- */
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function parseDateDDMMYYYY(str) {
   let [d, m, y] = str.split('/');
-  if (y.length === 2) y = '20' + y;
-  return new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
+  if (y && y.length === 2) {
+    y = '20' + y; // Si el año viene con 2 dígitos
+  }
+  const day = parseInt(d, 10);
+  const month = parseInt(m, 10) - 1;
+  const year = parseInt(y, 10);
+  return new Date(year, month, day);
 }
 
 function formatDateDDMMYYYY(date) {
@@ -42,9 +47,9 @@ function daysRemaining(expirationDateStr) {
   return Math.ceil(diff / (1000 * 3600 * 24));
 }
 
-// ----------------------
-// Función para generar reporte a partir del CSV
-// ----------------------
+/* --------------------------------------
+   CSV + Report
+-------------------------------------- */
 function getReport(reportType) {
   return new Promise((resolve, reject) => {
     const results = [];
@@ -65,11 +70,15 @@ function getReport(reportType) {
           const rowDate = new Date(row.Fecha);
           return rowDate >= startDate && rowDate <= now;
         });
-        let totalVentas = 0, totalGastos = 0;
+        let totalVentas = 0;
+        let totalGastos = 0;
         filtered.forEach(row => {
           const amount = parseFloat(row.Monto);
-          if (row.Tipo.toLowerCase() === 'venta') totalVentas += amount;
-          else if (row.Tipo.toLowerCase() === 'gasto') totalGastos += amount;
+          if (row.Tipo.toLowerCase() === 'venta') {
+            totalVentas += amount;
+          } else if (row.Tipo.toLowerCase() === 'gasto') {
+            totalGastos += amount;
+          }
         });
         const balance = totalVentas - totalGastos;
         let report = `Reporte ${reportType}:\n`;
@@ -83,17 +92,17 @@ function getReport(reportType) {
   });
 }
 
-// ----------------------
-// Errores Globales
-// ----------------------
+/* --------------------------------------
+   Manejo de Errores
+-------------------------------------- */
 process.on('uncaughtException', err => console.error('Uncaught Exception:', err));
 process.on('unhandledRejection', (reason, promise) =>
   console.error('Unhandled Rejection at:', promise, 'reason:', reason)
 );
 
-// ----------------------
-// CSV Writer para Transacciones
-// ----------------------
+/* --------------------------------------
+   CSV Writer para Transacciones
+-------------------------------------- */
 const csvFilePath = path.join(__dirname, 'transactions.csv');
 const csvWriter = createCsvWriter({
   path: csvFilePath,
@@ -107,18 +116,18 @@ const csvWriter = createCsvWriter({
   append: true
 });
 
-// ----------------------
-// Conexión a MongoDB
-// ----------------------
+/* --------------------------------------
+   Conexión a MongoDB
+-------------------------------------- */
 mongoose.connect('mongodb+srv://jordyvigo:Gunbound2024@cardroid.crwia.mongodb.net/ofertaclientes?retryWrites=true&w=majority&appName=Cardroid', {
   useNewUrlParser: true,
   useUnifiedTopology: true
 }).then(() => console.log('Conectado a MongoDB (ofertaclientes)'))
   .catch(err => console.error('Error conectando a MongoDB:', err));
 
-// ----------------------
-// Modelo Cliente
-// ----------------------
+/* --------------------------------------
+   Modelos
+-------------------------------------- */
 const clienteSchema = new mongoose.Schema({
   numero: { type: String, required: true, unique: true },
   createdAt: { type: Date, default: Date.now },
@@ -126,9 +135,6 @@ const clienteSchema = new mongoose.Schema({
 });
 const Cliente = mongoose.model('Cliente', clienteSchema, 'clientes');
 
-// ----------------------
-// Modelo Interacción
-// ----------------------
 const interaccionSchema = new mongoose.Schema({
   numero: { type: String, required: true },
   tipo: { type: String },
@@ -144,31 +150,28 @@ async function registrarInteraccion(numero, tipo, mensaje, ofertaReferencia = nu
   console.log(`Interacción registrada para ${numero}: ${tipo}`);
 }
 
-// ----------------------
-// Modelo Comprador (Garantías)
-// ----------------------
 const compradorSchema = new mongoose.Schema({
   numero: { type: String, required: true },
   producto: { type: String, required: true },
-  placa: { type: String }, // Opcional, 6 caracteres
+  placa: { type: String }, // 6 caracteres
   fechaInicio: { type: String, required: true },
   fechaExpiracion: { type: String, required: true }
 });
 const Comprador = mongoose.model('Comprador', compradorSchema, 'compradores');
 
-// ----------------------
-// Modelo Offer (Base de ofertas)
-// ----------------------
 const offerSchema = new mongoose.Schema({
   numero: { type: String, required: true, unique: true }
 });
 const Offer = mongoose.model('Offer', offerSchema, 'offers');
 
-// ----------------------
-// Registrar Transacción en CSV
-// ----------------------
+/* --------------------------------------
+   Registrar Transacción en CSV
+-------------------------------------- */
 async function registrarTransaccionCSV(texto) {
+  console.log('Registrando transacción con:', texto);
   const parts = texto.trim().split(' ');
+  console.log('Parts:', parts);
+
   const type = parts[0].toLowerCase();
   let currency = 'soles';
   let amount;
@@ -180,6 +183,8 @@ async function registrarTransaccionCSV(texto) {
     amount = parseFloat(parts[parts.length - 1]);
     description = parts.slice(1, parts.length - 1).join(' ');
   }
+  console.log('Type:', type, 'Amount:', amount, 'Description:', description);
+
   if (isNaN(amount)) {
     console.error('Error: monto no válido.');
     return;
@@ -199,11 +204,12 @@ async function registrarTransaccionCSV(texto) {
   }
 }
 
-// ----------------------
-// Registrar o actualizar Cliente
-// ----------------------
+/* --------------------------------------
+   Registrar o actualizar Cliente
+-------------------------------------- */
 async function registrarNumero(numeroWhatsApp) {
   const numeroLimpio = numeroWhatsApp.split('@')[0];
+  console.log('Registrando/actualizando cliente:', numeroLimpio);
   let cliente = await Cliente.findOneAndUpdate(
     { numero: numeroLimpio },
     { $set: { lastInteraction: new Date() } },
@@ -218,43 +224,67 @@ async function registrarNumero(numeroWhatsApp) {
   }
 }
 
-// ----------------------
-// Función para agregar garantía (solo admin)
-// Formato: "agregar <producto> <número> [<placa>] [<fecha>] [shh]"
-// Si se incluye "shh" al final, no se envía confirmación al cliente.
-// Se admite que un cliente tenga múltiples garantías para distintos productos.
+/* --------------------------------------
+   Agregar Garantía
+-------------------------------------- */
 async function agregarGarantia(texto) {
+  console.log('Comando agregar:', texto);
   const tokens = texto.trim().split(' ');
-  tokens.shift(); // quitar "agregar"
+  console.log('Tokens parseados:', tokens);
+
+  tokens.shift(); // quitar la palabra "agregar"
   let silent = false;
-  if (tokens[tokens.length - 1].toLowerCase() === 'shh') {
+  if (tokens[tokens.length - 1] && tokens[tokens.length - 1].toLowerCase() === 'shh') {
     silent = true;
     tokens.pop();
+    console.log('Modo silencioso (shh) activado');
   }
+
+  // Se necesitan al menos 2 tokens: [producto + ...] y [número]
   if (tokens.length < 2) {
     throw new Error('Formato incorrecto. Ejemplo: agregar radio Android 999888777 [ABC123] [31/03/2023] [shh]');
   }
+
   let fechaStr = formatDateDDMMYYYY(new Date());
   let plate = null;
   const dateRegex = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/;
   const plateRegex = /^[A-Za-z0-9]{6}$/;
+
+  // Si el último token coincide con una fecha, la tomamos
   if (dateRegex.test(tokens[tokens.length - 1])) {
     fechaStr = tokens.pop();
+    console.log('Fecha detectada:', fechaStr);
   }
+
+  // Si el penúltimo token coincide con placa, la tomamos
   if (tokens.length >= 2 && plateRegex.test(tokens[tokens.length - 1])) {
     plate = tokens.pop();
+    console.log('Placa detectada:', plate);
   }
+
+  // Ahora el último token debe ser el número
   if (tokens.length < 1) {
     throw new Error('No se encontró el número de teléfono.');
   }
   let phone = tokens.pop();
+  console.log('Teléfono parseado:', phone);
+
+  // El resto de tokens es el nombre del producto
   const product = tokens.join(' ');
+  console.log('Producto parseado:', product);
+
+  // Ajustar prefijo +51
   if (!phone.startsWith('+')) {
     phone = '+51' + phone;
   }
+  console.log('Número final:', phone);
+
+  // Calcular fecha de expiración 1 año después
   const startDate = parseDateDDMMYYYY(fechaStr);
   const expDate = new Date(startDate.getFullYear() + 1, startDate.getMonth(), startDate.getDate());
   const fechaExpiracion = formatDateDDMMYYYY(expDate);
+
+  // Insertar nuevo registro (permitimos múltiples garantías)
   const newRecord = new Comprador({
     numero: phone,
     producto: product,
@@ -264,20 +294,22 @@ async function agregarGarantia(texto) {
   });
   await newRecord.save();
   await Offer.deleteOne({ numero: phone });
+
   if (!silent) {
-    await client.sendMessage(
-      phone + '@c.us',
-      `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr} - Fecha de expiración: ${fechaExpiracion}.\nRecuerda que puedes escribir "garantia" para ver tus garantías vigentes.`
-    );
+    const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr} - Fecha de expiración: ${fechaExpiracion}.\nRecuerda que puedes escribir "garantia" para ver tus garantías vigentes.`;
+    console.log('Enviando mensaje al cliente:', phone);
+    await client.sendMessage(phone + '@c.us', msg);
+  } else {
+    console.log('Garantía agregada en modo silencioso, no se envía mensaje al cliente.');
   }
   return `Garantía agregada para ${product} al cliente ${phone}${plate ? ' (Placa: ' + plate + ')' : ''}.`;
 }
 
-// ----------------------
-// Función para programar mensajes (solo admin)
-// Formato: "programar <mensaje> <fecha> <número>"
-// ----------------------
+/* --------------------------------------
+   Programar Mensaje
+-------------------------------------- */
 async function programarMensaje(texto) {
+  console.log('Comando programar:', texto);
   const tokens = texto.trim().split(' ');
   tokens.shift(); // quitar "programar"
   if (tokens.length < 3) {
@@ -286,21 +318,25 @@ async function programarMensaje(texto) {
   const target = tokens.pop();
   const dateToken = tokens.pop();
   const mensajeProgramado = tokens.join(' ');
+
+  console.log('Mensaje programado:', mensajeProgramado);
+  console.log('Fecha detectada:', dateToken);
+  console.log('Número:', target);
+
   const scheduledDate = parseDateDDMMYYYY(dateToken);
-  const job = schedule.scheduleJob(scheduledDate, async function() {
+  schedule.scheduleJob(scheduledDate, async function() {
     await client.sendMessage(target + '@c.us', `Recordatorio: ${mensajeProgramado}`);
   });
   return `Mensaje programado para ${target} el ${dateToken}: ${mensajeProgramado}`;
 }
 
-// ----------------------
-// Configuración del WhatsApp Client (LocalAuth)
-// ----------------------
+/* --------------------------------------
+   Configuración de WhatsApp Web
+-------------------------------------- */
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
   puppeteer: {
     headless: true,
-    // executablePath: '/usr/bin/google-chrome-stable',
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -312,9 +348,9 @@ const client = new Client({
   }
 });
 
-// ----------------------
-// Eventos de WhatsApp
-// ----------------------
+/* --------------------------------------
+   Eventos del Cliente de WhatsApp
+-------------------------------------- */
 client.on('qr', async (qrCode) => {
   console.debug('QR recibido.');
   try {
@@ -331,12 +367,11 @@ client.on('ready', () => {
 
 client.on('auth_failure', msg => console.error('Error de autenticación:', msg));
 
-// ----------------------
-// Gestión de estado para ofertas
-// ----------------------
+/* --------------------------------------
+   Lógica de Ofertas
+-------------------------------------- */
 const userOfferState = {};
 
-// Función para cargar ofertas desde "offers.json"
 function cargarOfertas() {
   try {
     const data = fs.readFileSync(path.join(__dirname, 'offers.json'), 'utf8');
@@ -347,7 +382,6 @@ function cargarOfertas() {
   }
 }
 
-// Función para particionar ofertas usando índices
 function particionarOfertas(ofertas, count) {
   const indices = Array.from({ length: ofertas.length }, (_, i) => i);
   let selectedIndices = [];
@@ -361,16 +395,16 @@ function particionarOfertas(ofertas, count) {
   return { firstBatch, remainingBatch };
 }
 
-// ----------------------
-// Evento de mensaje entrante
-// ----------------------
+/* --------------------------------------
+   Manejo de Mensajes
+-------------------------------------- */
 client.on('message', async (message) => {
   const msgText = message.body.trim().toLowerCase();
   console.debug('Mensaje recibido:', message.body);
   const sender = message.from.split('@')[0].replace('+', '');
-  const adminNumber = "51931367147"; // Número de admin hardcodeado
+  const adminNumber = "51931367147"; // Cambia este número si tu admin es otro
 
-  // --- Comandos del admin ---
+  /* ----- Comando AYUDA (solo admin) ----- */
   if (msgText === 'ayuda') {
     if (sender !== adminNumber) {
       await message.reply('No tienes permisos para ver la ayuda.');
@@ -408,7 +442,7 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
     return;
   }
 
-  // Agregar garantía (solo admin)
+  /* ----- Comando AGREGAR (solo admin) ----- */
   if (msgText.startsWith('agregar')) {
     if (sender !== adminNumber) {
       await message.reply('No tienes permisos para agregar garantías.');
@@ -423,7 +457,8 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
     }
     return;
   }
-  // Programar mensaje (solo admin)
+
+  /* ----- Comando PROGRAMAR (solo admin) ----- */
   if (msgText.startsWith('programar')) {
     if (sender !== adminNumber) {
       await message.reply('No tienes permisos para programar mensajes.');
@@ -438,7 +473,8 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
     }
     return;
   }
-  // Reportes y transacciones (solo admin)
+
+  /* ----- Comando REPORTE (solo admin) ----- */
   if (sender === adminNumber) {
     if (msgText === 'reporte diario' || msgText === 'reporte semanal' || msgText === 'reporte mensual') {
       const reportType = msgText.split(' ')[1];
@@ -451,17 +487,24 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
       }
       return;
     }
+
+    /* ----- Comando GASTO/VENTA (solo admin) ----- */
     if (msgText.startsWith('gasto') || msgText.startsWith('venta')) {
       await registrarTransaccionCSV(message.body);
       await message.reply('Transacción registrada.');
       return;
     }
+
+    /* ----- Comando ENVIAR OFERTA (solo admin) ----- */
     if (msgText.startsWith('enviar oferta')) {
+      console.log('Comando enviar oferta recibido:', message.body);
       if (sender !== adminNumber) {
         await message.reply('No tienes permisos para enviar ofertas.');
         return;
       }
       const tokens = message.body.trim().split(' ');
+      console.log('Tokens parseados para enviar oferta:', tokens);
+
       if (tokens.length < 3) {
         await message.reply('Formato incorrecto. Ejemplo: enviar oferta 932426069');
         return;
@@ -470,19 +513,28 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
       if (!target.startsWith('+')) {
         target = '+51' + target;
       }
+      console.log('Número final para oferta:', target);
+
       const ofertas = cargarOfertas();
       if (ofertas.length === 0) {
         await message.reply('No hay ofertas disponibles.');
         return;
       }
+
+      // Seleccionamos 8 ofertas aleatorias
       function getRandomPromos(promos, count) {
         const shuffled = promos.slice().sort(() => 0.5 - Math.random());
         return shuffled.slice(0, count);
       }
       const selectedOffers = getRandomPromos(ofertas, 8);
+
+      console.log('Enviando saludo inicial a:', target);
       await client.sendMessage(target + '@c.us', '¡Hola! Aquí tienes nuestras promociones:');
+
+      // Enviamos cada oferta con un delay
       for (const promo of selectedOffers) {
         try {
+          console.log('Enviando oferta a:', target, '->', promo.descripcion);
           const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
           const base64Image = Buffer.from(response.data, 'binary').toString('base64');
           const mimeType = response.headers['content-type'];
@@ -496,12 +548,17 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
       await message.reply(`Oferta enviada al número ${target}.`);
       return;
     }
+
+    /* ----- Comando ENVIAR ARCHIVO (solo admin) ----- */
     if (msgText.startsWith('enviar archivo')) {
+      console.log('Comando enviar archivo recibido:', message.body);
       if (sender !== adminNumber) {
         await message.reply('No tienes permisos para enviar archivos.');
         return;
       }
       const tokens = message.body.trim().split(' ');
+      console.log('Tokens parseados para enviar archivo:', tokens);
+
       if (tokens.length < 3) {
         await message.reply('Formato incorrecto. Ejemplo: enviar archivo 932426069');
         return;
@@ -510,12 +567,15 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
       if (!target.startsWith('+')) {
         target = '+51' + target;
       }
+      console.log('Número final para archivo:', target);
+
       if (!message.hasMedia) {
         await message.reply('No se encontró ningún archivo adjunto en tu mensaje.');
         return;
       }
       try {
         const media = await message.downloadMedia();
+        console.log('Enviando archivo a:', target);
         await client.sendMessage(target + '@c.us', media, { caption: 'Archivo enviado desde el admin.' });
         await message.reply(`Archivo enviado al número ${target}.`);
       } catch (err) {
@@ -526,10 +586,12 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
     }
   }
 
-  // --- Comando para que un cliente consulte sus garantías ---
+  /* ----- Comando GARANTIA (para el cliente) ----- */
   if (msgText === 'garantia') {
     const numeroCliente = message.from.split('@')[0];
-    const garantias = await Comprador.find({ numero: numeroCliente });
+    console.log('Comando garantia recibido de:', numeroCliente);
+
+    const garantias = await Comprador.find({ numero: '+51' + numeroCliente });
     if (!garantias || garantias.length === 0) {
       await message.reply('No tienes garantías vigentes registradas.');
       return;
@@ -537,14 +599,17 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
     let respuesta = 'Tus garantías vigentes:\n\n';
     garantias.forEach(g => {
       const diasRestantes = daysRemaining(g.fechaExpiracion);
-      respuesta += `Producto: ${g.producto}${g.placa ? ' (Placa: ' + g.placa + ')' : ''}\nFecha inicio: ${g.fechaInicio}\nExpira: ${g.fechaExpiracion} (faltan ${diasRestantes} días)\n\n`;
+      respuesta += `Producto: ${g.producto}${g.placa ? ' (Placa: ' + g.placa + ')' : ''}\n`;
+      respuesta += `Fecha inicio: ${g.fechaInicio}\n`;
+      respuesta += `Expira: ${g.fechaExpiracion} (faltan ${diasRestantes} días)\n\n`;
     });
     await message.reply(respuesta);
     return;
   }
 
-  // --- Flujo de ofertas para usuarios generales ---
+  /* ----- Flujo de OFERTA/MARZO (usuarios generales) ----- */
   if (msgText === 'oferta') {
+    console.log('Comando oferta recibido de:', sender);
     await registrarInteraccion(message.from.split('@')[0], 'solicitudOferta', message.body);
     try {
       await message.react('🤑');
@@ -573,6 +638,7 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
       };
       for (const promo of userOfferState[message.from].firstOffers) {
         try {
+          console.log('Enviando promo a', message.from, '->', promo.descripcion);
           const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
           const base64Image = Buffer.from(response.data, 'binary').toString('base64');
           const mimeType = response.headers['content-type'];
@@ -587,6 +653,7 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
     }
     return;
   } else if (msgText === 'marzo') {
+    console.log('Comando marzo recibido de:', sender);
     if (userOfferState[message.from] && userOfferState[message.from].remainingOffers && userOfferState[message.from].remainingOffers.length > 0) {
       if (userOfferState[message.from].timeout) clearTimeout(userOfferState[message.from].timeout);
       console.debug("Remaining offers count:", userOfferState[message.from].remainingOffers.length);
@@ -594,6 +661,7 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
       const offersToSend = userOfferState[message.from].remainingOffers.slice(0, 8);
       for (const promo of offersToSend) {
         try {
+          console.log('Enviando promo (marzo) a', message.from, '->', promo.descripcion);
           const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
           const base64Image = Buffer.from(response.data, 'binary').toString('base64');
           const mimeType = response.headers['content-type'];
@@ -615,9 +683,9 @@ Recuerda que los comandos son sensibles al formato (usa espacios correctamente).
   }
 });
 
-// ----------------------
-// Endpoint para enviar ofertas masivas a todos los clientes (proactivo)
-// ----------------------
+/* --------------------------------------
+   Endpoint para enviar ofertas masivas
+-------------------------------------- */
 app.get('/crm/send-initial-offers', async (req, res) => {
   try {
     const clientes = await Cliente.find({});
@@ -628,6 +696,7 @@ app.get('/crm/send-initial-offers', async (req, res) => {
     const totalTime = 4 * 3600 * 1000;
     const delayBetweenClients = totalClientes > 0 ? totalTime / totalClientes : 0;
     console.log(`Enviando ofertas a ${totalClientes} clientes con un intervalo de ${(delayBetweenClients/1000).toFixed(2)} segundos.`);
+
     async function enviarOfertasCliente(cliente) {
       const numero = `${cliente.numero}@c.us`;
       await client.sendMessage(numero, mensajeIntro);
@@ -653,6 +722,7 @@ app.get('/crm/send-initial-offers', async (req, res) => {
       }
       await registrarInteraccion(cliente.numero, 'ofertaMasiva', 'Envío masivo inicial de ofertas de marzo');
     }
+
     async function enviarOfertasRecursivo(index) {
       if (index >= clientes.length) return;
       await enviarOfertasCliente(clientes[index]);
@@ -666,9 +736,9 @@ app.get('/crm/send-initial-offers', async (req, res) => {
   }
 });
 
-// ----------------------
-// Dashboard CRM simple
-// ----------------------
+/* --------------------------------------
+   Dashboard CRM simple
+-------------------------------------- */
 app.get('/crm', async (req, res) => {
   try {
     const totalClientes = await Cliente.countDocuments({});
@@ -714,9 +784,9 @@ app.get('/crm', async (req, res) => {
   }
 });
 
-// ----------------------
-// Endpoint para descargar el CSV de transacciones
-// ----------------------
+/* --------------------------------------
+   Endpoint para descargar el CSV
+-------------------------------------- */
 app.get('/crm/export-transactions', (req, res) => {
   if (fs.existsSync(csvFilePath)) {
     res.download(csvFilePath, 'transacciones.csv');
@@ -725,21 +795,9 @@ app.get('/crm/export-transactions', (req, res) => {
   }
 });
 
-// ----------------------
-// Endpoint para visualizar el QR
-// ----------------------
-app.get('/qr', (req, res) => {
-  const qrPath = path.join(__dirname, 'whatsapp-qr.png');
-  if (fs.existsSync(qrPath)) {
-    res.sendFile(qrPath);
-  } else {
-    res.status(404).send('El archivo QR no existe o aún no se ha generado.');
-  }
-});
-
-// ----------------------
-// Programar recordatorio diario de garantías próximas a expirar (a las 08:00 AM)
-// ----------------------
+/* --------------------------------------
+   Recordatorio diario de garantías
+-------------------------------------- */
 schedule.scheduleJob('0 8 * * *', async function() {
   const today = new Date();
   const targetDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
@@ -753,9 +811,9 @@ schedule.scheduleJob('0 8 * * *', async function() {
   });
 });
 
-// ----------------------
-// Inicializar el Cliente de WhatsApp
-// ----------------------
+/* --------------------------------------
+   Inicializar WhatsApp
+-------------------------------------- */
 client.initialize();
 
 app.listen(PORT, () => {
