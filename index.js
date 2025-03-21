@@ -13,9 +13,8 @@ const schedule = require('node-schedule');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Número de admin (almacenado sin el símbolo "+", ejemplo: "51931367147")
+// Números: admin (sin “+”) y bot (para evitar enviar a sí mismo)
 const adminNumber = "51931367147";
-// Número del bot (para evitar envíos a sí mismo)
 const botNumber = "51999999999"; // Ajusta según corresponda
 
 /* --------------------------------------
@@ -53,14 +52,14 @@ function daysRemaining(expirationDateStr) {
   }
 }
 
-// Función para remover acentos (para normalizar comandos como "garantía")
+// Remover acentos (para normalizar "garantía")
 function removeAccents(str) {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 /* --------------------------------------
    CSV + Report
-   Se fuerza a csv-parser a usar headers (asumiendo que el CSV tiene encabezados correctos)
+   reportDate es opcional (formato DD/MM/YYYY)
 -------------------------------------- */
 function getReport(reportType, reportDate = new Date()) {
   return new Promise((resolve, reject) => {
@@ -79,17 +78,20 @@ function getReport(reportType, reportDate = new Date()) {
           startDate = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
         }
         const filtered = results.filter(row => {
-          if (!row.Fecha) {
+          let fechaValue = row.Fecha;
+          if (!fechaValue) {
+            // Intentamos usar la segunda columna si es una fecha válida
+            const values = Object.values(row);
+            if (values.length > 1 && !isNaN(Date.parse(values[1]))) {
+              fechaValue = values[1];
+            }
+          }
+          if (!fechaValue) {
             console.warn("Fila sin campo 'Fecha':", row);
             return false;
           }
-          try {
-            const rowDate = parseDateDDMMYYYY(row.Fecha);
-            return rowDate >= startDate && rowDate <= now;
-          } catch (e) {
-            console.error("Error parseando la fecha del CSV:", row.Fecha, e);
-            return false;
-          }
+          let rowDate = isNaN(Date.parse(fechaValue)) ? parseDateDDMMYYYY(fechaValue) : new Date(fechaValue);
+          return rowDate >= startDate && rowDate <= now;
         });
         let totalVentas = 0, totalGastos = 0;
         filtered.forEach(row => {
@@ -251,7 +253,8 @@ async function agregarGarantia(texto, client) {
   console.log('Comando agregar:', texto);
   const tokens = texto.trim().split(' ');
   console.log('Tokens parseados:', tokens);
-  tokens.shift(); // eliminar "agregar"
+  // Se espera que el comando empiece con "agregar"
+  tokens.shift();
   let silent = false;
   if (tokens[tokens.length - 1] && tokens[tokens.length - 1].toLowerCase() === 'shh') {
     silent = true;
@@ -280,13 +283,12 @@ async function agregarGarantia(texto, client) {
   console.log('Teléfono parseado:', phone);
   const product = tokens.join(' ');
   console.log('Producto parseado:', product);
-  // Si no empieza con "51", se le antepone "51"
+  // Si no empieza con "51", lo concatenamos (sin el símbolo "+")
   if (!phone.startsWith('51')) {
     phone = '51' + phone;
   }
   console.log('Número final (sin +):', phone);
 
-  // Intentar obtener número reconocido por WhatsApp
   let numberId;
   try {
     numberId = await client.getNumberId(phone);
@@ -428,7 +430,7 @@ function particionarOfertas(ofertas, count) {
    Manejo de Mensajes
 -------------------------------------- */
 client.on('message', async (message) => {
-  // Normalizar el mensaje quitando acentos (para comandos como "garantía")
+  // Normalizar el mensaje quitando acentos para comandos (por ejemplo, "garantía" se convierte en "garantia")
   const normalizedText = removeAccents(message.body.trim().toLowerCase());
   console.debug('Mensaje recibido:', message.body);
   const sender = message.from.split('@')[0].replace('+', '');
@@ -459,7 +461,7 @@ client.on('message', async (message) => {
   if (removeAccents(message.body.trim().toLowerCase()) === 'garantia') {
     const numeroCliente = message.from.split('@')[0];
     console.log('Comando garantia recibido de:', numeroCliente);
-    // Se asume que en la DB los números se guardan ya en formato "51xxxxxxxxx"
+    // Se consulta en compradores usando el número tal como se guardó (ya en formato "51xxxxxxxxx")
     const garantias = await Comprador.find({ numero: numeroCliente });
     if (!garantias || garantias.length === 0) {
       await message.reply('No tienes garantías vigentes registradas.');
@@ -478,6 +480,18 @@ client.on('message', async (message) => {
   
   /* ----- Comandos del admin ----- */
   if (sender === adminNumber) {
+    // Agregar garantía (agregar comando)
+    if (normalizedText.startsWith('agregar')) {
+      try {
+        const result = await agregarGarantia(message.body, client);
+        await message.reply(result);
+      } catch (err) {
+        console.error('Error agregando garantía:', err);
+        await message.reply('Error: Formato incorrecto. Ejemplo: agregar alarma 931367147 [placa] [01/01/2025] [shh]');
+      }
+      return;
+    }
+    
     if (normalizedText.startsWith('programar')) {
       try {
         const result = await programarMensaje(message.body);
@@ -491,7 +505,6 @@ client.on('message', async (message) => {
     if (normalizedText === 'reporte diario' || normalizedText === 'reporte semanal' || normalizedText === 'reporte mensual') {
       const tokens = message.body.trim().split(' ');
       const reportType = tokens[1].toLowerCase();
-      // Si se envía una fecha adicional (tercer token), se usa; de lo contrario se usa la fecha actual.
       const reportDate = tokens.length >= 3 ? parseDateDDMMYYYY(tokens[2]) : new Date();
       try {
         const report = await getReport(reportType, reportDate);
@@ -508,7 +521,6 @@ client.on('message', async (message) => {
       return;
     }
   
-    /* ----- Comando ENVIAR OFERTA (solo admin) ----- */
     if (normalizedText.startsWith('enviar oferta')) {
       console.log('Comando enviar oferta recibido:', message.body);
       const tokens = message.body.trim().split(' ');
@@ -560,8 +572,7 @@ client.on('message', async (message) => {
       await message.reply(`Oferta enviada al número ${target}.`);
       return;
     }
-  
-    /* ----- Comando ENVIAR ARCHIVO (solo admin) ----- */
+    
     if (normalizedText.startsWith('enviar archivo')) {
       console.log('Comando enviar archivo recibido:', message.body);
       const tokens = message.body.trim().split(' ');
