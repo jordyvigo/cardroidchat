@@ -13,10 +13,10 @@ const schedule = require('node-schedule');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Número de admin (almacenado sin “+”, ej.: "51931367147")
+// Número de admin (almacenado sin el símbolo "+"; ej.: "51931367147")
 const adminNumber = "51931367147";
-// Número del bot (si fuera necesario para evitar envíos a sí mismo)
-const botNumber = "51999999999"; // Ajusta si corresponde
+// Número del bot (si es necesario para evitar enviarse mensajes a sí mismo)
+const botNumber = "51999999999"; // Ajusta según corresponda
 
 /* --------------------------------------
    Helper Functions
@@ -54,7 +54,7 @@ function removeAccents(str) {
 
 /* --------------------------------------
    CSV + Report
-   Se acepta un parámetro opcional reportDate (formato DD/MM/YYYY)
+   reportDate es opcional (formato DD/MM/YYYY)
 -------------------------------------- */
 function getReport(reportType, reportDate = new Date()) {
   return new Promise((resolve, reject) => {
@@ -63,7 +63,6 @@ function getReport(reportType, reportDate = new Date()) {
       .pipe(csvParser())
       .on('data', data => results.push(data))
       .on('end', () => {
-        // Se asume que el campo "Fecha" en el CSV está en formato DD/MM/YYYY
         let now = reportDate;
         let startDate;
         if (reportType === 'diario') {
@@ -74,7 +73,6 @@ function getReport(reportType, reportDate = new Date()) {
           startDate = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
         }
         const filtered = results.filter(row => {
-          // Se asume que row.Fecha tiene formato "DD/MM/YYYY"
           try {
             const rowDate = parseDateDDMMYYYY(row.Fecha);
             return rowDate >= startDate && rowDate <= now;
@@ -198,7 +196,7 @@ async function registrarTransaccionCSV(texto) {
     return;
   }
   const record = {
-    date: formatDateDDMMYYYY(new Date()), // Se almacena la fecha en formato DD/MM/YYYY
+    date: formatDateDDMMYYYY(new Date()),
     type,
     description,
     amount,
@@ -214,8 +212,7 @@ async function registrarTransaccionCSV(texto) {
 
 /* --------------------------------------
    Registrar/Actualizar Cliente
-   Al registrar garantía, se eliminará el cliente de la colección "clientes"
-   y se moverá a "compradores" (después de agregar la garantía).
+   Al agregar garantía se elimina de "clientes" y se mueve a "compradores"
 -------------------------------------- */
 async function registrarNumero(numeroWhatsApp) {
   const numeroLimpio = numeroWhatsApp.split('@')[0];
@@ -238,7 +235,7 @@ async function registrarNumero(numeroWhatsApp) {
    Agregar Garantía (solo admin)
    Formato: "agregar <producto> <número> [<placa>] [<fecha>] [shh]"
    Se asume que los números se almacenan como "51xxxxxxxxx" (sin '+')
-   Al agregar la garantía, se mueve el cliente de "clientes" a "compradores"
+   Al agregar la garantía se elimina el cliente de "clientes" y se agrega a "compradores"
 -------------------------------------- */
 async function agregarGarantia(texto, client) {
   console.log('Comando agregar:', texto);
@@ -273,16 +270,13 @@ async function agregarGarantia(texto, client) {
   console.log('Teléfono parseado:', phone);
   const product = tokens.join(' ');
   console.log('Producto parseado:', product);
+  // Si no empieza con "51", lo concatenamos
   if (!phone.startsWith('51')) {
     phone = '51' + phone;
   }
   console.log('Número final (sin +):', phone);
 
-  // Evitar enviar mensaje si el número es el del bot
-  if (phone === botNumber) {
-    console.warn('El número destino es el mismo que el del bot. No se enviará mensaje de confirmación.');
-  }
-
+  // Intentar obtener número reconocido por WhatsApp
   let numberId;
   try {
     numberId = await client.getNumberId(phone);
@@ -295,7 +289,7 @@ async function agregarGarantia(texto, client) {
   const expDate = new Date(startDate.getFullYear() + 1, startDate.getMonth(), startDate.getDate());
   const fechaExpiracion = formatDateDDMMYYYY(expDate);
 
-  // Guardar en "compradores"
+  // Guardar en la colección "compradores"
   const newRecord = new Comprador({
     numero: phone,
     producto: product,
@@ -305,7 +299,7 @@ async function agregarGarantia(texto, client) {
   });
   await newRecord.save();
 
-  // Eliminar el cliente de la colección "clientes" y de "offers"
+  // Eliminar de "clientes" y "offers"
   await Cliente.deleteOne({ numero: phone });
   await Offer.deleteOne({ numero: phone });
 
@@ -317,12 +311,12 @@ async function agregarGarantia(texto, client) {
         console.warn('getNumberId devolvió null; usando fallback:', phone + '@c.us');
         numberId = { _serialized: phone + '@c.us' };
       }
-      const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr}\nFecha de expiración: ${fechaExpiracion}\nEscribe "garantía" para ver tus garantías vigentes.`;
+      const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr}\nFecha de expiración: ${fechaExpiracion}\nEscribe "garantia" para ver tus garantías vigentes.`;
       console.log('Enviando mensaje de confirmación a:', numberId._serialized);
       await client.sendMessage(numberId._serialized, msg);
     }
   } else {
-    console.log('Garantía agregada en modo silencioso (shh), no se envía mensaje al cliente.');
+    console.log('Garantía agregada en modo silencioso (shh), no se envía mensaje.');
   }
   return `Garantía agregada para ${product} al cliente ${phone}${plate ? ' (Placa: ' + plate + ')' : ''}.`;
 }
@@ -420,7 +414,7 @@ function particionarOfertas(ofertas, count) {
    Manejo de Mensajes
 -------------------------------------- */
 client.on('message', async (message) => {
-  // Normalizamos el mensaje para eliminar acentos (para comandos como "garantía")
+  // Normalizamos el mensaje quitando acentos para comandos (por ejemplo "garantía" se vuelve "garantia")
   const normalizedText = removeAccents(message.body.trim().toLowerCase());
   console.debug('Mensaje recibido:', message.body);
   const sender = message.from.split('@')[0].replace('+', '');
@@ -435,11 +429,11 @@ client.on('message', async (message) => {
 1. **agregar**: Agrega una garantía.
    Formato: agregar <producto> <número> [<placa>] [<fecha>] [shh]
    Ejemplo: agregar alarma 931367147 abc124 01/01/2025
-2. **garantia**: El cliente puede escribir "garantía" (o "garantia") para ver sus garantías vigentes.
+2. **garantia**: El cliente puede escribir "garantía" o "garantia" para ver sus garantías vigentes.
 3. **programar**: Programa un mensaje.
    Ejemplo: programar cita para instalación 31/01/25 932426069
 4. **gasto / venta**: Registra una transacción.
-5. **reporte diario / reporte semanal / reporte mensual**: Solicita un reporte. Opcionalmente, puedes agregar la fecha del día de reporte (formato DD/MM/YYYY).
+5. **reporte diario / reporte semanal / reporte mensual**: Solicita un reporte. Opcionalmente, agrega la fecha (DD/MM/YYYY) para el reporte.
 6. **oferta / marzo**: Recibe promociones.
 7. **enviar oferta <número>**: Envía 8 ofertas a un número.
 8. **enviar archivo <número>**: Envía un archivo adjunto a un número.`;
@@ -451,8 +445,8 @@ client.on('message', async (message) => {
   if (removeAccents(message.body.trim().toLowerCase()) === 'garantia') {
     const numeroCliente = message.from.split('@')[0];
     console.log('Comando garantia recibido de:', numeroCliente);
-    // Se asume que en la DB los números se guardan como "51xxxxxxxxx"
-    const garantias = await Comprador.find({ numero: '51' + numeroCliente });
+    // Usar el número tal cual, ya que se almacenó con "51" al inicio
+    const garantias = await Comprador.find({ numero: numeroCliente });
     if (!garantias || garantias.length === 0) {
       await message.reply('No tienes garantías vigentes registradas.');
       return;
@@ -483,7 +477,6 @@ client.on('message', async (message) => {
     if (normalizedText === 'reporte diario' || normalizedText === 'reporte semanal' || normalizedText === 'reporte mensual') {
       const tokens = message.body.trim().split(' ');
       const reportType = tokens[1].toLowerCase();
-      // Si se envía una fecha adicional (tercer token), se usa; de lo contrario se usa la fecha actual.
       const reportDate = tokens.length >= 3 ? parseDateDDMMYYYY(tokens[2]) : new Date();
       try {
         const report = await getReport(reportType, reportDate);
