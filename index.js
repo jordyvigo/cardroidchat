@@ -14,9 +14,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Número de admin (almacenado sin el símbolo "+", ejemplo: "51931367147")
-// Nota: este número es el que usas para enviar comandos como admin.
 const adminNumber = "51931367147";
-// Si es necesario, define el número del bot (para evitar enviarse mensajes a sí mismo)
+// Número del bot (para evitar envíos a sí mismo)
 const botNumber = "51999999999"; // Ajusta según corresponda
 
 /* --------------------------------------
@@ -61,13 +60,13 @@ function removeAccents(str) {
 
 /* --------------------------------------
    CSV + Report
-   reportDate es opcional (formato DD/MM/YYYY)
+   Se fuerza a csv-parser a usar headers (asumiendo que el CSV tiene encabezados correctos)
 -------------------------------------- */
 function getReport(reportType, reportDate = new Date()) {
   return new Promise((resolve, reject) => {
     const results = [];
     fs.createReadStream(path.join(__dirname, 'transactions.csv'))
-      .pipe(csvParser())
+      .pipe(csvParser({ headers: true }))
       .on('data', data => results.push(data))
       .on('end', () => {
         let now = reportDate;
@@ -252,7 +251,7 @@ async function agregarGarantia(texto, client) {
   console.log('Comando agregar:', texto);
   const tokens = texto.trim().split(' ');
   console.log('Tokens parseados:', tokens);
-  tokens.shift(); // quitar "agregar"
+  tokens.shift(); // eliminar "agregar"
   let silent = false;
   if (tokens[tokens.length - 1] && tokens[tokens.length - 1].toLowerCase() === 'shh') {
     silent = true;
@@ -281,7 +280,7 @@ async function agregarGarantia(texto, client) {
   console.log('Teléfono parseado:', phone);
   const product = tokens.join(' ');
   console.log('Producto parseado:', product);
-  // Si no empieza con "51", lo concatenamos (sin el símbolo "+")
+  // Si no empieza con "51", se le antepone "51"
   if (!phone.startsWith('51')) {
     phone = '51' + phone;
   }
@@ -300,7 +299,7 @@ async function agregarGarantia(texto, client) {
   const expDate = new Date(startDate.getFullYear() + 1, startDate.getMonth(), startDate.getDate());
   const fechaExpiracion = formatDateDDMMYYYY(expDate);
 
-  // Guardar en la colección "compradores"
+  // Guardar en "compradores"
   const newRecord = new Comprador({
     numero: phone,
     producto: product,
@@ -310,12 +309,11 @@ async function agregarGarantia(texto, client) {
   });
   await newRecord.save();
 
-  // Eliminar de "clientes" y de "offers"
+  // Mover el cliente: eliminar de "clientes" y "offers"
   await Cliente.deleteOne({ numero: phone });
   await Offer.deleteOne({ numero: phone });
 
   if (!silent) {
-    // Si el número es el del bot, evitamos enviar mensaje
     if (phone === botNumber) {
       console.log('No se envía mensaje de confirmación porque el número destino es el del bot.');
     } else {
@@ -430,7 +428,7 @@ function particionarOfertas(ofertas, count) {
    Manejo de Mensajes
 -------------------------------------- */
 client.on('message', async (message) => {
-  // Normalizar el mensaje para eliminar acentos (por ejemplo, "garantía" se convierte en "garantia")
+  // Normalizar el mensaje quitando acentos (para comandos como "garantía")
   const normalizedText = removeAccents(message.body.trim().toLowerCase());
   console.debug('Mensaje recibido:', message.body);
   const sender = message.from.split('@')[0].replace('+', '');
@@ -461,7 +459,7 @@ client.on('message', async (message) => {
   if (removeAccents(message.body.trim().toLowerCase()) === 'garantia') {
     const numeroCliente = message.from.split('@')[0];
     console.log('Comando garantia recibido de:', numeroCliente);
-    // Se asume que en la BD los números se guardan ya en formato "51xxxxxxxxx"
+    // Se asume que en la DB los números se guardan ya en formato "51xxxxxxxxx"
     const garantias = await Comprador.find({ numero: numeroCliente });
     if (!garantias || garantias.length === 0) {
       await message.reply('No tienes garantías vigentes registradas.');
