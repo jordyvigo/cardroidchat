@@ -22,13 +22,8 @@ function sleep(ms) {
 
 function parseDateDDMMYYYY(str) {
   let [d, m, y] = str.split('/');
-  if (y && y.length === 2) {
-    y = '20' + y; // Si el año viene con 2 dígitos
-  }
-  const day = parseInt(d, 10);
-  const month = parseInt(m, 10) - 1;
-  const year = parseInt(y, 10);
-  return new Date(year, month, day);
+  if (y && y.length === 2) y = '20' + y;
+  return new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
 }
 
 function formatDateDDMMYYYY(date) {
@@ -70,8 +65,7 @@ function getReport(reportType) {
           const rowDate = new Date(row.Fecha);
           return rowDate >= startDate && rowDate <= now;
         });
-        let totalVentas = 0;
-        let totalGastos = 0;
+        let totalVentas = 0, totalGastos = 0;
         filtered.forEach(row => {
           const amount = parseFloat(row.Monto);
           if (row.Tipo.toLowerCase() === 'venta') totalVentas += amount;
@@ -168,7 +162,6 @@ async function registrarTransaccionCSV(texto) {
   console.log('Registrando transacción con:', texto);
   const parts = texto.trim().split(' ');
   console.log('Parts:', parts);
-
   const type = parts[0].toLowerCase();
   let currency = 'soles';
   let amount;
@@ -181,7 +174,6 @@ async function registrarTransaccionCSV(texto) {
     description = parts.slice(1, parts.length - 1).join(' ');
   }
   console.log('Type:', type, 'Amount:', amount, 'Description:', description);
-
   if (isNaN(amount)) {
     console.error('Error: monto no válido.');
     return;
@@ -224,14 +216,14 @@ async function registrarNumero(numeroWhatsApp) {
 /* --------------------------------------
    Agregar Garantía (solo admin)
    Formato: "agregar <producto> <número> [<placa>] [<fecha>] [shh]"
-   La información obligatoria es producto y número.
-   Los parámetros [placa], [fecha] y [shh] son opcionales.
+   Obligatorios: producto y número.
+   Opcionales: placa, fecha y shh.
+   Se utiliza getNumberId() para depuración y fallback.
 -------------------------------------- */
-async function agregarGarantia(texto) {
+async function agregarGarantia(texto, client) {
   console.log('Comando agregar:', texto);
   const tokens = texto.trim().split(' ');
   console.log('Tokens parseados:', tokens);
-
   tokens.shift(); // quitar "agregar"
   let silent = false;
   if (tokens[tokens.length - 1] && tokens[tokens.length - 1].toLowerCase() === 'shh') {
@@ -239,16 +231,13 @@ async function agregarGarantia(texto) {
     tokens.pop();
     console.log('Modo silencioso (shh) activado');
   }
-
   if (tokens.length < 2) {
     throw new Error('Formato incorrecto. Ejemplo: agregar radio Android 999888777 [ABC123] [31/03/2023] [shh]');
   }
-
   let fechaStr = formatDateDDMMYYYY(new Date());
   let plate = null;
   const dateRegex = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/;
   const plateRegex = /^[A-Za-z0-9]{6}$/;
-
   if (dateRegex.test(tokens[tokens.length - 1])) {
     fechaStr = tokens.pop();
     console.log('Fecha detectada:', fechaStr);
@@ -262,20 +251,24 @@ async function agregarGarantia(texto) {
   }
   let phone = tokens.pop();
   console.log('Teléfono parseado:', phone);
-
   const product = tokens.join(' ');
   console.log('Producto parseado:', product);
-
-  // Ajustar prefijo +51 si no lo tiene
   if (!phone.startsWith('+')) {
     phone = '+51' + phone;
   }
   console.log('Número final:', phone);
 
+  // Verificar si WhatsApp reconoce el número con getNumberId()
+  let numberId;
+  try {
+    numberId = await client.getNumberId(phone);
+    console.log('getNumberId en agregarGarantia:', numberId);
+  } catch (err) {
+    console.error('Error en getNumberId al agregar garantía:', err);
+  }
   const startDate = parseDateDDMMYYYY(fechaStr);
   const expDate = new Date(startDate.getFullYear() + 1, startDate.getMonth(), startDate.getDate());
   const fechaExpiracion = formatDateDDMMYYYY(expDate);
-
   const newRecord = new Comprador({
     numero: phone,
     producto: product,
@@ -285,11 +278,19 @@ async function agregarGarantia(texto) {
   });
   await newRecord.save();
   await Offer.deleteOne({ numero: phone });
-
   if (!silent) {
-    const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr} - Fecha de expiración: ${fechaExpiracion}.\nRecuerda que puedes escribir "garantia" para ver tus garantías vigentes.`;
-    console.log('Enviando mensaje al cliente:', phone);
-    await client.sendMessage(phone + '@c.us', msg);
+    if (!numberId) {
+      console.log('getNumberId devolvió null; usando fallback: ' + phone + '@c.us');
+      // Fallback: utilizar phone + '@c.us'
+      const fallbackId = { _serialized: phone + '@c.us' };
+      const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr} - Fecha de expiración: ${fechaExpiracion}.\nRecuerda que puedes escribir "garantia" para ver tus garantías vigentes.`;
+      console.log('Enviando mensaje (fallback) a:', fallbackId._serialized);
+      await client.sendMessage(fallbackId._serialized, msg);
+    } else {
+      const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr} - Fecha de expiración: ${fechaExpiracion}.\nRecuerda que puedes escribir "garantia" para ver tus garantías vigentes.`;
+      console.log('Enviando mensaje de confirmación a:', numberId._serialized);
+      await client.sendMessage(numberId._serialized, msg);
+    }
   } else {
     console.log('Garantía agregada en modo silencioso, no se envía mensaje al cliente.');
   }
@@ -303,18 +304,16 @@ async function agregarGarantia(texto) {
 async function programarMensaje(texto) {
   console.log('Comando programar:', texto);
   const tokens = texto.trim().split(' ');
-  tokens.shift(); // quitar "programar"
+  tokens.shift();
   if (tokens.length < 3) {
     throw new Error('Formato incorrecto. Ejemplo: programar cita para instalación 31/01/25 932426069');
   }
   const target = tokens.pop();
   const dateToken = tokens.pop();
   const mensajeProgramado = tokens.join(' ');
-
   console.log('Mensaje programado:', mensajeProgramado);
   console.log('Fecha detectada:', dateToken);
-  console.log('Número:', target);
-
+  console.log('Número destino:', target);
   const scheduledDate = parseDateDDMMYYYY(dateToken);
   schedule.scheduleJob(scheduledDate, async function() {
     await client.sendMessage(target + '@c.us', `Recordatorio: ${mensajeProgramado}`);
@@ -394,7 +393,7 @@ client.on('message', async (message) => {
   const msgText = message.body.trim().toLowerCase();
   console.debug('Mensaje recibido:', message.body);
   const sender = message.from.split('@')[0].replace('+', '');
-  const adminNumber = "51931367147"; // Número de admin hardcodeado
+  const adminNumber = "51931367147"; // Hardcodea tu número de admin
 
   /* ----- Comando AYUDA (solo admin) ----- */
   if (msgText === 'ayuda') {
@@ -403,31 +402,17 @@ client.on('message', async (message) => {
       return;
     }
     const helpText = `Comandos disponibles:
-    
 1. **agregar**: Agrega una garantía.
    Formato: agregar <producto> <número> [<placa>] [<fecha>] [shh]
    Ejemplo: agregar radio Android 999888777 ABC123 01/03/2023
-   (Si incluyes "shh" al final, no se envía mensaje al cliente)
-
-2. **garantia**: El cliente puede escribir "garantia" para ver sus garantías vigentes y los días restantes.
-
+2. **garantia**: El cliente puede escribir "garantia" para ver sus garantías vigentes.
 3. **programar**: Programa un mensaje.
-   Formato: programar <mensaje> <fecha> <número>
    Ejemplo: programar cita para instalación 31/01/25 932426069
-
 4. **gasto / venta**: Registra una transacción.
-   Ejemplo: gasto sueldo trabajador 110
-            venta radio Android 500 soles
-
-5. **reporte diario / reporte semanal / reporte mensual**: Solicita un reporte de transacciones.
-
-6. **oferta / marzo**: Los usuarios pueden enviar "oferta" para recibir promociones; luego "marzo" para más.
-
-7. **enviar oferta <número>**: El admin envía 8 ofertas a un número específico.
-   Ejemplo: enviar oferta 932426069
-
-8. **enviar archivo <número>**: El admin envía un archivo adjunto a un número específico.
-   Ejemplo: enviar archivo 932426069`;
+5. **reporte diario / reporte semanal / reporte mensual**: Solicita un reporte.
+6. **oferta / marzo**: Recibe promociones.
+7. **enviar oferta <número>**: Envía 8 ofertas a un número.
+8. **enviar archivo <número>**: Envía un archivo adjunto a un número.`;
     await message.reply(helpText);
     return;
   }
@@ -439,7 +424,7 @@ client.on('message', async (message) => {
       return;
     }
     try {
-      const result = await agregarGarantia(message.body);
+      const result = await agregarGarantia(message.body, client);
       await message.reply(result);
     } catch (err) {
       console.error('Error agregando garantía:', err);
@@ -483,7 +468,10 @@ client.on('message', async (message) => {
       return;
     }
 
-    /* ----- Comando ENVIAR OFERTA (solo admin) ----- */
+    /* -----------------------------------------
+       Comando ENVIAR OFERTA (solo admin)
+       Uso de getNumberId() con fallback
+    ----------------------------------------- */
     if (msgText.startsWith('enviar oferta')) {
       console.log('Comando enviar oferta recibido:', message.body);
       if (sender !== adminNumber) {
@@ -492,7 +480,6 @@ client.on('message', async (message) => {
       }
       const tokens = message.body.trim().split(' ');
       console.log('Tokens parseados para enviar oferta:', tokens);
-
       if (tokens.length < 3) {
         await message.reply('Formato incorrecto. Ejemplo: enviar oferta 932426069');
         return;
@@ -502,15 +489,18 @@ client.on('message', async (message) => {
         target = '+51' + target;
       }
       console.log('Número final para oferta:', target);
-
       // Verificar con getNumberId()
-      const numberId = await client.getNumberId(target);
-      console.log('getNumberId devuelto por WhatsApp:', numberId);
-      if (!numberId) {
-        await message.reply('Este número no está en WhatsApp o no se pudo verificar.');
-        return;
+      let numberId;
+      try {
+        numberId = await client.getNumberId(target);
+        console.log('getNumberId devuelto (oferta):', numberId);
+      } catch (err) {
+        console.error('Error en getNumberId (oferta):', err);
       }
-
+      if (!numberId) {
+        console.warn('getNumberId devolvió null; usando fallback:', target + '@c.us');
+        numberId = { _serialized: target + '@c.us' };
+      }
       const ofertas = cargarOfertas();
       if (ofertas.length === 0) {
         await message.reply('No hay ofertas disponibles.');
@@ -523,7 +513,6 @@ client.on('message', async (message) => {
       const selectedOffers = getRandomPromos(ofertas, 8);
       console.log('Enviando saludo inicial a:', numberId._serialized);
       await client.sendMessage(numberId._serialized, '¡Hola! Aquí tienes nuestras promociones:');
-
       for (const promo of selectedOffers) {
         try {
           console.log('Enviando oferta a:', numberId._serialized, '->', promo.descripcion);
@@ -541,7 +530,10 @@ client.on('message', async (message) => {
       return;
     }
 
-    /* ----- Comando ENVIAR ARCHIVO (solo admin) ----- */
+    /* -----------------------------------------
+       Comando ENVIAR ARCHIVO (solo admin)
+       Uso de getNumberId() con fallback
+    ----------------------------------------- */
     if (msgText.startsWith('enviar archivo')) {
       console.log('Comando enviar archivo recibido:', message.body);
       if (sender !== adminNumber) {
@@ -550,7 +542,6 @@ client.on('message', async (message) => {
       }
       const tokens = message.body.trim().split(' ');
       console.log('Tokens parseados para enviar archivo:', tokens);
-
       if (tokens.length < 3) {
         await message.reply('Formato incorrecto. Ejemplo: enviar archivo 932426069');
         return;
@@ -560,11 +551,16 @@ client.on('message', async (message) => {
         target = '+51' + target;
       }
       console.log('Número final para archivo:', target);
-      const numberId = await client.getNumberId(target);
-      console.log('getNumberId devuelto por WhatsApp (archivo):', numberId);
+      let numberId;
+      try {
+        numberId = await client.getNumberId(target);
+        console.log('getNumberId devuelto (archivo):', numberId);
+      } catch (err) {
+        console.error('Error en getNumberId (archivo):', err);
+      }
       if (!numberId) {
-        await message.reply('Este número no está en WhatsApp o no se pudo verificar.');
-        return;
+        console.warn('getNumberId devolvió null; usando fallback:', target + '@c.us');
+        numberId = { _serialized: target + '@c.us' };
       }
       if (!message.hasMedia) {
         await message.reply('No se encontró ningún archivo adjunto en tu mensaje.');
@@ -587,7 +583,6 @@ client.on('message', async (message) => {
   if (msgText === 'garantia') {
     const numeroCliente = message.from.split('@')[0];
     console.log('Comando garantia recibido de:', numeroCliente);
-    // Si en la BD se guardaron números con prefijo +51, lo concatenamos
     const garantias = await Comprador.find({ numero: '+51' + numeroCliente });
     if (!garantias || garantias.length === 0) {
       await message.reply('No tienes garantías vigentes registradas.');
@@ -681,7 +676,7 @@ client.on('message', async (message) => {
 });
 
 /* --------------------------------------
-   Endpoint para enviar ofertas masivas a todos los clientes (proactivo)
+   Endpoint para envío masivo de ofertas
 -------------------------------------- */
 app.get('/crm/send-initial-offers', async (req, res) => {
   try {
@@ -693,7 +688,6 @@ app.get('/crm/send-initial-offers', async (req, res) => {
     const totalTime = 4 * 3600 * 1000;
     const delayBetweenClients = totalClientes > 0 ? totalTime / totalClientes : 0;
     console.log(`Enviando ofertas a ${totalClientes} clientes con un intervalo de ${(delayBetweenClients/1000).toFixed(2)} segundos.`);
-
     async function enviarOfertasCliente(cliente) {
       const numero = `${cliente.numero}@c.us`;
       await client.sendMessage(numero, mensajeIntro);
@@ -719,7 +713,6 @@ app.get('/crm/send-initial-offers', async (req, res) => {
       }
       await registrarInteraccion(cliente.numero, 'ofertaMasiva', 'Envío masivo inicial de ofertas de marzo');
     }
-
     async function enviarOfertasRecursivo(index) {
       if (index >= clientes.length) return;
       await enviarOfertasCliente(clientes[index]);
