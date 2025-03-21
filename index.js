@@ -13,6 +13,11 @@ const schedule = require('node-schedule');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Número de admin (almacenado sin “+”, ej.: "51931367147")
+const adminNumber = "51931367147";
+// Número del bot (si fuera necesario para evitar envíos a sí mismo)
+const botNumber = "51999999999"; // Ajusta si corresponde
+
 /* --------------------------------------
    Helper Functions
 -------------------------------------- */
@@ -42,17 +47,24 @@ function daysRemaining(expirationDateStr) {
   return Math.ceil(diff / (1000 * 3600 * 24));
 }
 
+// Función para remover acentos (para normalizar "garantía")
+function removeAccents(str) {
+  return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
 /* --------------------------------------
    CSV + Report
+   Se acepta un parámetro opcional reportDate (formato DD/MM/YYYY)
 -------------------------------------- */
-function getReport(reportType) {
+function getReport(reportType, reportDate = new Date()) {
   return new Promise((resolve, reject) => {
     const results = [];
     fs.createReadStream(path.join(__dirname, 'transactions.csv'))
       .pipe(csvParser())
       .on('data', data => results.push(data))
       .on('end', () => {
-        const now = new Date();
+        // Se asume que el campo "Fecha" en el CSV está en formato DD/MM/YYYY
+        let now = reportDate;
         let startDate;
         if (reportType === 'diario') {
           startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -62,8 +74,14 @@ function getReport(reportType) {
           startDate = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
         }
         const filtered = results.filter(row => {
-          const rowDate = new Date(row.Fecha);
-          return rowDate >= startDate && rowDate <= now;
+          // Se asume que row.Fecha tiene formato "DD/MM/YYYY"
+          try {
+            const rowDate = parseDateDDMMYYYY(row.Fecha);
+            return rowDate >= startDate && rowDate <= now;
+          } catch (e) {
+            console.error("Error parseando la fecha del CSV:", row.Fecha, e);
+            return false;
+          }
         });
         let totalVentas = 0, totalGastos = 0;
         filtered.forEach(row => {
@@ -73,6 +91,7 @@ function getReport(reportType) {
         });
         const balance = totalVentas - totalGastos;
         let report = `Reporte ${reportType}:\n`;
+        report += `Fecha de reporte: ${formatDateDDMMYYYY(now)}\n`;
         report += `Total transacciones: ${filtered.length}\n`;
         report += `Total Ventas (Ingresos): ${totalVentas} soles\n`;
         report += `Total Gastos (Egresos): ${totalGastos} soles\n`;
@@ -179,7 +198,7 @@ async function registrarTransaccionCSV(texto) {
     return;
   }
   const record = {
-    date: new Date().toLocaleString(),
+    date: formatDateDDMMYYYY(new Date()), // Se almacena la fecha en formato DD/MM/YYYY
     type,
     description,
     amount,
@@ -195,6 +214,8 @@ async function registrarTransaccionCSV(texto) {
 
 /* --------------------------------------
    Registrar/Actualizar Cliente
+   Al registrar garantía, se eliminará el cliente de la colección "clientes"
+   y se moverá a "compradores" (después de agregar la garantía).
 -------------------------------------- */
 async function registrarNumero(numeroWhatsApp) {
   const numeroLimpio = numeroWhatsApp.split('@')[0];
@@ -207,21 +228,22 @@ async function registrarNumero(numeroWhatsApp) {
   if (!cliente) {
     cliente = new Cliente({ numero: numeroLimpio, lastInteraction: new Date() });
     await cliente.save();
-    console.log(`Número ${numeroLimpio} registrado.`);
+    console.log(`Número ${numeroLimpio} registrado en "clientes".`);
   } else {
-    console.log(`Número ${numeroLimpio} actualizado.`);
+    console.log(`Número ${numeroLimpio} actualizado en "clientes".`);
   }
 }
 
 /* --------------------------------------
    Agregar Garantía (solo admin)
-   - Ajustado: sin '+'
+   Formato: "agregar <producto> <número> [<placa>] [<fecha>] [shh]"
+   Se asume que los números se almacenan como "51xxxxxxxxx" (sin '+')
+   Al agregar la garantía, se mueve el cliente de "clientes" a "compradores"
 -------------------------------------- */
 async function agregarGarantia(texto, client) {
   console.log('Comando agregar:', texto);
   const tokens = texto.trim().split(' ');
   console.log('Tokens parseados:', tokens);
-
   tokens.shift(); // quitar "agregar"
   let silent = false;
   if (tokens[tokens.length - 1] && tokens[tokens.length - 1].toLowerCase() === 'shh') {
@@ -229,44 +251,38 @@ async function agregarGarantia(texto, client) {
     tokens.pop();
     console.log('Modo silencioso (shh) activado');
   }
-
   if (tokens.length < 2) {
-    throw new Error('Formato incorrecto. Ejemplo: agregar radio Android 999888777 [ABC123] [31/03/2023] [shh]');
+    throw new Error('Formato incorrecto. Ejemplo: agregar radio 998877665 [placa] [01/01/2025] [shh]');
   }
-
   let fechaStr = formatDateDDMMYYYY(new Date());
   let plate = null;
   const dateRegex = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/;
   const plateRegex = /^[A-Za-z0-9]{6}$/;
-
-  // Detectar fecha
   if (dateRegex.test(tokens[tokens.length - 1])) {
     fechaStr = tokens.pop();
     console.log('Fecha detectada:', fechaStr);
   }
-
-  // Detectar placa
   if (tokens.length >= 2 && plateRegex.test(tokens[tokens.length - 1])) {
     plate = tokens.pop();
     console.log('Placa detectada:', plate);
   }
-
   if (tokens.length < 1) {
     throw new Error('No se encontró el número de teléfono.');
   }
   let phone = tokens.pop();
   console.log('Teléfono parseado:', phone);
-
-  // (Ajustado: sin '+') => si no empieza con "51", lo agregamos
+  const product = tokens.join(' ');
+  console.log('Producto parseado:', product);
   if (!phone.startsWith('51')) {
     phone = '51' + phone;
   }
   console.log('Número final (sin +):', phone);
 
-  const product = tokens.join(' ');
-  console.log('Producto parseado:', product);
+  // Evitar enviar mensaje si el número es el del bot
+  if (phone === botNumber) {
+    console.warn('El número destino es el mismo que el del bot. No se enviará mensaje de confirmación.');
+  }
 
-  // getNumberId
   let numberId;
   try {
     numberId = await client.getNumberId(phone);
@@ -275,12 +291,11 @@ async function agregarGarantia(texto, client) {
     console.error('Error en getNumberId al agregar garantía:', err);
   }
 
-  // Calcular fecha expiración
   const startDate = parseDateDDMMYYYY(fechaStr);
   const expDate = new Date(startDate.getFullYear() + 1, startDate.getMonth(), startDate.getDate());
   const fechaExpiracion = formatDateDDMMYYYY(expDate);
 
-  // Guardar en la BD
+  // Guardar en "compradores"
   const newRecord = new Comprador({
     numero: phone,
     producto: product,
@@ -290,29 +305,31 @@ async function agregarGarantia(texto, client) {
   });
   await newRecord.save();
 
-  // Eliminar de "offers"
+  // Eliminar el cliente de la colección "clientes" y de "offers"
+  await Cliente.deleteOne({ numero: phone });
   await Offer.deleteOne({ numero: phone });
 
   if (!silent) {
-    if (!numberId) {
-      console.log('getNumberId devolvió null; fallback ->', phone + '@c.us');
-      const fallbackId = { _serialized: phone + '@c.us' };
-      const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr} - Fecha de expiración: ${fechaExpiracion}.\nEscribe "garantia" para ver tus garantías vigentes.`;
-      console.log('Enviando mensaje (fallback) a:', fallbackId._serialized);
-      await client.sendMessage(fallbackId._serialized, msg);
+    if (phone === botNumber) {
+      console.log('No se envía mensaje de confirmación porque el número destino es el del bot.');
     } else {
-      const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr} - Fecha de expiración: ${fechaExpiracion}.\nRecuerda que puedes escribir "garantia" para ver tus garantías vigentes.`;
+      if (!numberId) {
+        console.warn('getNumberId devolvió null; usando fallback:', phone + '@c.us');
+        numberId = { _serialized: phone + '@c.us' };
+      }
+      const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr}\nFecha de expiración: ${fechaExpiracion}\nEscribe "garantía" para ver tus garantías vigentes.`;
       console.log('Enviando mensaje de confirmación a:', numberId._serialized);
       await client.sendMessage(numberId._serialized, msg);
     }
   } else {
-    console.log('Garantía agregada en modo silencioso, no se envía mensaje al cliente.');
+    console.log('Garantía agregada en modo silencioso (shh), no se envía mensaje al cliente.');
   }
   return `Garantía agregada para ${product} al cliente ${phone}${plate ? ' (Placa: ' + plate + ')' : ''}.`;
 }
 
 /* --------------------------------------
    Programar Mensaje (solo admin)
+   Formato: "programar <mensaje> <fecha> <número>"
 -------------------------------------- */
 async function programarMensaje(texto) {
   console.log('Comando programar:', texto);
@@ -403,13 +420,13 @@ function particionarOfertas(ofertas, count) {
    Manejo de Mensajes
 -------------------------------------- */
 client.on('message', async (message) => {
-  const msgText = message.body.trim().toLowerCase();
+  // Normalizamos el mensaje para eliminar acentos (para comandos como "garantía")
+  const normalizedText = removeAccents(message.body.trim().toLowerCase());
   console.debug('Mensaje recibido:', message.body);
   const sender = message.from.split('@')[0].replace('+', '');
-  const adminNumber = "51931367147"; // Hardcodea tu número de admin
-
+  
   /* ----- Comando AYUDA (solo admin) ----- */
-  if (msgText === 'ayuda') {
+  if (normalizedText === 'ayuda') {
     if (sender !== adminNumber) {
       await message.reply('No tienes permisos para ver la ayuda.');
       return;
@@ -417,57 +434,59 @@ client.on('message', async (message) => {
     const helpText = `Comandos disponibles:
 1. **agregar**: Agrega una garantía.
    Formato: agregar <producto> <número> [<placa>] [<fecha>] [shh]
-   Ejemplo: agregar radio Android 999888777 ABC123 01/03/2023
-2. **garantia**: El cliente puede escribir "garantia" para ver sus garantías vigentes.
+   Ejemplo: agregar alarma 931367147 abc124 01/01/2025
+2. **garantia**: El cliente puede escribir "garantía" (o "garantia") para ver sus garantías vigentes.
 3. **programar**: Programa un mensaje.
    Ejemplo: programar cita para instalación 31/01/25 932426069
 4. **gasto / venta**: Registra una transacción.
-5. **reporte diario / reporte semanal / reporte mensual**: Solicita un reporte.
+5. **reporte diario / reporte semanal / reporte mensual**: Solicita un reporte. Opcionalmente, puedes agregar la fecha del día de reporte (formato DD/MM/YYYY).
 6. **oferta / marzo**: Recibe promociones.
 7. **enviar oferta <número>**: Envía 8 ofertas a un número.
 8. **enviar archivo <número>**: Envía un archivo adjunto a un número.`;
     await message.reply(helpText);
     return;
   }
-
-  /* ----- Comando AGREGAR (solo admin) ----- */
-  if (msgText.startsWith('agregar')) {
-    if (sender !== adminNumber) {
-      await message.reply('No tienes permisos para agregar garantías.');
+  
+  /* ----- Comando GARANTIA (para el cliente) ----- */
+  if (removeAccents(message.body.trim().toLowerCase()) === 'garantia') {
+    const numeroCliente = message.from.split('@')[0];
+    console.log('Comando garantia recibido de:', numeroCliente);
+    // Se asume que en la DB los números se guardan como "51xxxxxxxxx"
+    const garantias = await Comprador.find({ numero: '51' + numeroCliente });
+    if (!garantias || garantias.length === 0) {
+      await message.reply('No tienes garantías vigentes registradas.');
       return;
     }
-    try {
-      const result = await agregarGarantia(message.body, client);
-      await message.reply(result);
-    } catch (err) {
-      console.error('Error agregando garantía:', err);
-      await message.reply('Error: Formato incorrecto. Ejemplo: agregar radio Android 999888777 [ABC123] [31/03/2023] [shh]');
-    }
+    let respuesta = 'Tus garantías vigentes:\n\n';
+    garantias.forEach(g => {
+      const diasRestantes = daysRemaining(g.fechaExpiracion);
+      respuesta += `Producto: ${g.producto}${g.placa ? ' (Placa: ' + g.placa + ')' : ''}\n`;
+      respuesta += `Fecha inicio: ${g.fechaInicio}\n`;
+      respuesta += `Expira: ${g.fechaExpiracion} (faltan ${diasRestantes} días)\n\n`;
+    });
+    await message.reply(respuesta);
     return;
   }
-
-  /* ----- Comando PROGRAMAR (solo admin) ----- */
-  if (msgText.startsWith('programar')) {
-    if (sender !== adminNumber) {
-      await message.reply('No tienes permisos para programar mensajes.');
-      return;
-    }
-    try {
-      const result = await programarMensaje(message.body);
-      await message.reply(result);
-    } catch (err) {
-      console.error('Error programando mensaje:', err);
-      await message.reply('Error: Formato incorrecto. Ejemplo: programar cita para instalación 31/01/25 932426069');
-    }
-    return;
-  }
-
-  /* ----- Comando REPORTE (solo admin) ----- */
+  
+  /* ----- Comandos del admin ----- */
   if (sender === adminNumber) {
-    if (msgText === 'reporte diario' || msgText === 'reporte semanal' || msgText === 'reporte mensual') {
-      const reportType = msgText.split(' ')[1];
+    if (normalizedText.startsWith('programar')) {
       try {
-        const report = await getReport(reportType);
+        const result = await programarMensaje(message.body);
+        await message.reply(result);
+      } catch (err) {
+        console.error('Error programando mensaje:', err);
+        await message.reply('Error: Formato incorrecto. Ejemplo: programar cita para instalación 31/01/25 932426069');
+      }
+      return;
+    }
+    if (normalizedText === 'reporte diario' || normalizedText === 'reporte semanal' || normalizedText === 'reporte mensual') {
+      const tokens = message.body.trim().split(' ');
+      const reportType = tokens[1].toLowerCase();
+      // Si se envía una fecha adicional (tercer token), se usa; de lo contrario se usa la fecha actual.
+      const reportDate = tokens.length >= 3 ? parseDateDDMMYYYY(tokens[2]) : new Date();
+      try {
+        const report = await getReport(reportType, reportDate);
         await message.reply(report);
       } catch (err) {
         console.error('Error generando reporte:', err);
@@ -475,36 +494,25 @@ client.on('message', async (message) => {
       }
       return;
     }
-    if (msgText.startsWith('gasto') || msgText.startsWith('venta')) {
+    if (normalizedText.startsWith('gasto') || normalizedText.startsWith('venta')) {
       await registrarTransaccionCSV(message.body);
       await message.reply('Transacción registrada.');
       return;
     }
-
-    /* -----------------------------------------
-       Comando ENVIAR OFERTA (solo admin)
-       Uso de getNumberId() con fallback
-       (Ajustado: sin '+')
-    ----------------------------------------- */
-    if (msgText.startsWith('enviar oferta')) {
+  
+    /* ----- Comando ENVIAR OFERTA (solo admin) ----- */
+    if (normalizedText.startsWith('enviar oferta')) {
       console.log('Comando enviar oferta recibido:', message.body);
-      if (sender !== adminNumber) {
-        await message.reply('No tienes permisos para enviar ofertas.');
-        return;
-      }
       const tokens = message.body.trim().split(' ');
-      console.log('Tokens parseados para enviar oferta:', tokens);
       if (tokens.length < 3) {
         await message.reply('Formato incorrecto. Ejemplo: enviar oferta 932426069');
         return;
       }
       let target = tokens[2];
-      // (Ajustado: sin '+')
       if (!target.startsWith('51')) {
         target = '51' + target;
       }
       console.log('Número final para oferta:', target);
-
       let numberId;
       try {
         numberId = await client.getNumberId(target);
@@ -544,31 +552,20 @@ client.on('message', async (message) => {
       await message.reply(`Oferta enviada al número ${target}.`);
       return;
     }
-
-    /* -----------------------------------------
-       Comando ENVIAR ARCHIVO (solo admin)
-       Uso de getNumberId() con fallback
-       (Ajustado: sin '+')
-    ----------------------------------------- */
-    if (msgText.startsWith('enviar archivo')) {
+  
+    /* ----- Comando ENVIAR ARCHIVO (solo admin) ----- */
+    if (normalizedText.startsWith('enviar archivo')) {
       console.log('Comando enviar archivo recibido:', message.body);
-      if (sender !== adminNumber) {
-        await message.reply('No tienes permisos para enviar archivos.');
-        return;
-      }
       const tokens = message.body.trim().split(' ');
-      console.log('Tokens parseados para enviar archivo:', tokens);
       if (tokens.length < 3) {
         await message.reply('Formato incorrecto. Ejemplo: enviar archivo 932426069');
         return;
       }
       let target = tokens[2];
-      // (Ajustado: sin '+')
       if (!target.startsWith('51')) {
         target = '51' + target;
       }
       console.log('Número final para archivo:', target);
-
       let numberId;
       try {
         numberId = await client.getNumberId(target);
@@ -596,31 +593,9 @@ client.on('message', async (message) => {
       return;
     }
   }
-
-  /* ----- Comando GARANTIA (para el cliente) ----- */
-  if (msgText === 'garantia') {
-    const numeroCliente = message.from.split('@')[0];
-    console.log('Comando garantia recibido de:', numeroCliente);
-
-    // (Ajustado: sin '+')
-    const garantias = await Comprador.find({ numero: '51' + numeroCliente });
-    if (!garantias || garantias.length === 0) {
-      await message.reply('No tienes garantías vigentes registradas.');
-      return;
-    }
-    let respuesta = 'Tus garantías vigentes:\n\n';
-    garantias.forEach(g => {
-      const diasRestantes = daysRemaining(g.fechaExpiracion);
-      respuesta += `Producto: ${g.producto}${g.placa ? ' (Placa: ' + g.placa + ')' : ''}\n`;
-      respuesta += `Fecha inicio: ${g.fechaInicio}\n`;
-      respuesta += `Expira: ${g.fechaExpiracion} (faltan ${diasRestantes} días)\n\n`;
-    });
-    await message.reply(respuesta);
-    return;
-  }
-
+  
   /* ----- Flujo OFERTA/MARZO (usuarios generales) ----- */
-  if (msgText === 'oferta') {
+  if (normalizedText === 'oferta') {
     console.log('Comando oferta recibido de:', sender);
     await registrarInteraccion(message.from.split('@')[0], 'solicitudOferta', message.body);
     try {
@@ -664,7 +639,7 @@ client.on('message', async (message) => {
       await message.reply('Si deseas ver más ofertas, escribe "marzo".');
     }
     return;
-  } else if (msgText === 'marzo') {
+  } else if (normalizedText === 'marzo') {
     console.log('Comando marzo recibido de:', sender);
     if (userOfferState[message.from] && userOfferState[message.from].remainingOffers && userOfferState[message.from].remainingOffers.length > 0) {
       if (userOfferState[message.from].timeout) clearTimeout(userOfferState[message.from].timeout);
@@ -708,9 +683,7 @@ app.get('/crm/send-initial-offers', async (req, res) => {
     const totalTime = 4 * 3600 * 1000;
     const delayBetweenClients = totalClientes > 0 ? totalTime / totalClientes : 0;
     console.log(`Enviando ofertas a ${totalClientes} clientes con un intervalo de ${(delayBetweenClients/1000).toFixed(2)} segundos.`);
-
     async function enviarOfertasCliente(cliente) {
-      // Asumimos que en la BD ya está guardado como "51XXXXXXXXX"
       const numero = `${cliente.numero}@c.us`;
       await client.sendMessage(numero, mensajeIntro);
       function getRandomPromos(promos, count) {
@@ -735,7 +708,6 @@ app.get('/crm/send-initial-offers', async (req, res) => {
       }
       await registrarInteraccion(cliente.numero, 'ofertaMasiva', 'Envío masivo inicial de ofertas de marzo');
     }
-
     async function enviarOfertasRecursivo(index) {
       if (index >= clientes.length) return;
       await enviarOfertasCliente(clientes[index]);
