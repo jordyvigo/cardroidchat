@@ -13,8 +13,12 @@ const schedule = require('node-schedule');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Números: admin (sin “+”) y bot (para evitar enviar a sí mismo)
+// Habilitar el body parser para formularios
+app.use(express.urlencoded({ extended: true }));
+
+// Número de admin (almacenado sin el símbolo "+", por ejemplo "51931367147")
 const adminNumber = "51931367147";
+// Número del bot (para evitar envíos a sí mismo)
 const botNumber = "51999999999"; // Ajusta según corresponda
 
 /* --------------------------------------
@@ -52,20 +56,20 @@ function daysRemaining(expirationDateStr) {
   }
 }
 
-// Remover acentos (para normalizar "garantía")
+// Función para remover acentos (para normalizar "garantía")
 function removeAccents(str) {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 /* --------------------------------------
    CSV + Report
-   reportDate es opcional (formato DD/MM/YYYY)
+   Se asignan encabezados fijos: Fecha, Tipo, Producto, Monto, Moneda
 -------------------------------------- */
 function getReport(reportType, reportDate = new Date()) {
   return new Promise((resolve, reject) => {
     const results = [];
     fs.createReadStream(path.join(__dirname, 'transactions.csv'))
-      .pipe(csvParser({ headers: true }))
+      .pipe(csvParser({ headers: ['Fecha', 'Tipo', 'Producto', 'Monto', 'Moneda'] }))
       .on('data', data => results.push(data))
       .on('end', () => {
         let now = reportDate;
@@ -78,20 +82,17 @@ function getReport(reportType, reportDate = new Date()) {
           startDate = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
         }
         const filtered = results.filter(row => {
-          let fechaValue = row.Fecha;
-          if (!fechaValue) {
-            // Intentamos usar la segunda columna si es una fecha válida
-            const values = Object.values(row);
-            if (values.length > 1 && !isNaN(Date.parse(values[1]))) {
-              fechaValue = values[1];
-            }
-          }
-          if (!fechaValue) {
+          if (!row.Fecha) {
             console.warn("Fila sin campo 'Fecha':", row);
             return false;
           }
-          let rowDate = isNaN(Date.parse(fechaValue)) ? parseDateDDMMYYYY(fechaValue) : new Date(fechaValue);
-          return rowDate >= startDate && rowDate <= now;
+          try {
+            const rowDate = parseDateDDMMYYYY(row.Fecha);
+            return rowDate >= startDate && rowDate <= now;
+          } catch (e) {
+            console.error("Error parseando la fecha del CSV:", row.Fecha, e);
+            return false;
+          }
         });
         let totalVentas = 0, totalGastos = 0;
         filtered.forEach(row => {
@@ -253,7 +254,7 @@ async function agregarGarantia(texto, client) {
   console.log('Comando agregar:', texto);
   const tokens = texto.trim().split(' ');
   console.log('Tokens parseados:', tokens);
-  // Se espera que el comando empiece con "agregar"
+  // Se espera que el comando comience con "agregar" (ignoramos mayúsculas/minúsculas)
   tokens.shift();
   let silent = false;
   if (tokens[tokens.length - 1] && tokens[tokens.length - 1].toLowerCase() === 'shh') {
@@ -283,7 +284,7 @@ async function agregarGarantia(texto, client) {
   console.log('Teléfono parseado:', phone);
   const product = tokens.join(' ');
   console.log('Producto parseado:', product);
-  // Si no empieza con "51", lo concatenamos (sin el símbolo "+")
+  // Si el número no empieza con "51", se le antepone "51"
   if (!phone.startsWith('51')) {
     phone = '51' + phone;
   }
@@ -461,7 +462,7 @@ client.on('message', async (message) => {
   if (removeAccents(message.body.trim().toLowerCase()) === 'garantia') {
     const numeroCliente = message.from.split('@')[0];
     console.log('Comando garantia recibido de:', numeroCliente);
-    // Se consulta en compradores usando el número tal como se guardó (ya en formato "51xxxxxxxxx")
+    // Se consulta en compradores usando el número tal como se guardó (por ejemplo "51931367147")
     const garantias = await Comprador.find({ numero: numeroCliente });
     if (!garantias || garantias.length === 0) {
       await message.reply('No tienes garantías vigentes registradas.');
@@ -480,7 +481,6 @@ client.on('message', async (message) => {
   
   /* ----- Comandos del admin ----- */
   if (sender === adminNumber) {
-    // Agregar garantía (agregar comando)
     if (normalizedText.startsWith('agregar')) {
       try {
         const result = await agregarGarantia(message.body, client);
@@ -491,7 +491,6 @@ client.on('message', async (message) => {
       }
       return;
     }
-    
     if (normalizedText.startsWith('programar')) {
       try {
         const result = await programarMensaje(message.body);
@@ -505,6 +504,7 @@ client.on('message', async (message) => {
     if (normalizedText === 'reporte diario' || normalizedText === 'reporte semanal' || normalizedText === 'reporte mensual') {
       const tokens = message.body.trim().split(' ');
       const reportType = tokens[1].toLowerCase();
+      // Si se envía una fecha adicional (tercer token), se usa; de lo contrario se usa la fecha actual.
       const reportDate = tokens.length >= 3 ? parseDateDDMMYYYY(tokens[2]) : new Date();
       try {
         const report = await getReport(reportType, reportDate);
@@ -520,7 +520,6 @@ client.on('message', async (message) => {
       await message.reply('Transacción registrada.');
       return;
     }
-  
     if (normalizedText.startsWith('enviar oferta')) {
       console.log('Comando enviar oferta recibido:', message.body);
       const tokens = message.body.trim().split(' ');
@@ -572,7 +571,6 @@ client.on('message', async (message) => {
       await message.reply(`Oferta enviada al número ${target}.`);
       return;
     }
-    
     if (normalizedText.startsWith('enviar archivo')) {
       console.log('Comando enviar archivo recibido:', message.body);
       const tokens = message.body.trim().split(' ');
@@ -741,7 +739,58 @@ app.get('/crm/send-initial-offers', async (req, res) => {
 });
 
 /* --------------------------------------
-   Dashboard CRM simple
+   Nuevo Endpoint: Enviar Mensaje Personalizado (CRM)
+   Se muestra un formulario para elegir la colección y personalizar el mensaje
+-------------------------------------- */
+app.get('/crm/send-custom', (req, res) => {
+  res.send(`
+    <html>
+      <head>
+        <title>Enviar Mensaje Personalizado</title>
+      </head>
+      <body>
+        <h1>Enviar Mensaje Personalizado</h1>
+        <form method="POST" action="/crm/send-custom">
+          <label for="collection">Selecciona la lista:</label>
+          <select name="collection" id="collection">
+            <option value="clientes">Clientes</option>
+            <option value="compradores">Compradores</option>
+          </select><br><br>
+          <label for="message">Mensaje a enviar:</label><br>
+          <textarea name="message" id="message" rows="5" cols="50"></textarea><br><br>
+          <button type="submit">Enviar Mensaje</button>
+        </form>
+      </body>
+    </html>
+  `);
+});
+
+app.post('/crm/send-custom', async (req, res) => {
+  const { collection, message: customMessage } = req.body;
+  let Model;
+  if (collection === 'clientes') {
+    Model = Cliente;
+  } else if (collection === 'compradores') {
+    Model = Comprador;
+  } else {
+    return res.send("Colección inválida");
+  }
+  try {
+    const docs = await Model.find({});
+    for (const doc of docs) {
+      // Enviamos el mensaje al número almacenado
+      await client.sendMessage(doc.numero + '@c.us', customMessage);
+      await sleep(1000);
+    }
+    res.send(`Mensaje enviado a todos los usuarios de la lista ${collection}.`);
+  } catch (e) {
+    console.error(e);
+    res.send("Error al enviar mensajes: " + e);
+  }
+});
+
+/* --------------------------------------
+   Dashboard CRM simple (modificado para incluir enlace al envío personalizado)
 -------------------------------------- */
 app.get('/crm', async (req, res) => {
   try {
@@ -770,6 +819,7 @@ app.get('/crm', async (req, res) => {
           <div class="stat">Respuestas a ofertas: ${totalRespuestasOferta}</div>
           <div class="stat">Solicitudes de información: ${totalSolicitudesInfo}</div>
           <button onclick="location.href='/crm/send-initial-offers'">Enviar Oferta a Todos</button>
+          <button onclick="location.href='/crm/send-custom'">Enviar Mensaje Personalizado</button>
           <h2>Lista de Clientes</h2>
           <table>
             <tr>
