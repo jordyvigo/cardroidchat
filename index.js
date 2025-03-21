@@ -13,9 +13,10 @@ const schedule = require('node-schedule');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Número de admin (almacenado sin el símbolo "+"; ej.: "51931367147")
+// Número de admin (almacenado sin el símbolo "+", ejemplo: "51931367147")
+// Nota: este número es el que usas para enviar comandos como admin.
 const adminNumber = "51931367147";
-// Número del bot (si es necesario para evitar enviarse mensajes a sí mismo)
+// Si es necesario, define el número del bot (para evitar enviarse mensajes a sí mismo)
 const botNumber = "51999999999"; // Ajusta según corresponda
 
 /* --------------------------------------
@@ -26,9 +27,10 @@ function sleep(ms) {
 }
 
 function parseDateDDMMYYYY(str) {
+  if (!str) throw new Error("Fecha indefinida");
   let [d, m, y] = str.split('/');
   if (y && y.length === 2) y = '20' + y;
-  return new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
+  return new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10));
 }
 
 function formatDateDDMMYYYY(date) {
@@ -41,13 +43,18 @@ function formatDateDDMMYYYY(date) {
 }
 
 function daysRemaining(expirationDateStr) {
-  const expDate = parseDateDDMMYYYY(expirationDateStr);
-  const today = new Date();
-  const diff = expDate - today;
-  return Math.ceil(diff / (1000 * 3600 * 24));
+  try {
+    const expDate = parseDateDDMMYYYY(expirationDateStr);
+    const today = new Date();
+    const diff = expDate - today;
+    return Math.ceil(diff / (1000 * 3600 * 24));
+  } catch (e) {
+    console.error("Error calculando días restantes:", e);
+    return 0;
+  }
 }
 
-// Función para remover acentos (para normalizar "garantía")
+// Función para remover acentos (para normalizar comandos como "garantía")
 function removeAccents(str) {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
@@ -73,6 +80,10 @@ function getReport(reportType, reportDate = new Date()) {
           startDate = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
         }
         const filtered = results.filter(row => {
+          if (!row.Fecha) {
+            console.warn("Fila sin campo 'Fecha':", row);
+            return false;
+          }
           try {
             const rowDate = parseDateDDMMYYYY(row.Fecha);
             return rowDate >= startDate && rowDate <= now;
@@ -270,7 +281,7 @@ async function agregarGarantia(texto, client) {
   console.log('Teléfono parseado:', phone);
   const product = tokens.join(' ');
   console.log('Producto parseado:', product);
-  // Si no empieza con "51", lo concatenamos
+  // Si no empieza con "51", lo concatenamos (sin el símbolo "+")
   if (!phone.startsWith('51')) {
     phone = '51' + phone;
   }
@@ -299,11 +310,12 @@ async function agregarGarantia(texto, client) {
   });
   await newRecord.save();
 
-  // Eliminar de "clientes" y "offers"
+  // Eliminar de "clientes" y de "offers"
   await Cliente.deleteOne({ numero: phone });
   await Offer.deleteOne({ numero: phone });
 
   if (!silent) {
+    // Si el número es el del bot, evitamos enviar mensaje
     if (phone === botNumber) {
       console.log('No se envía mensaje de confirmación porque el número destino es el del bot.');
     } else {
@@ -311,9 +323,13 @@ async function agregarGarantia(texto, client) {
         console.warn('getNumberId devolvió null; usando fallback:', phone + '@c.us');
         numberId = { _serialized: phone + '@c.us' };
       }
-      const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr}\nFecha de expiración: ${fechaExpiracion}\nEscribe "garantia" para ver tus garantías vigentes.`;
+      const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr}\nFecha de expiración: ${fechaExpiracion}\nEscribe "garantía" para ver tus garantías vigentes.`;
       console.log('Enviando mensaje de confirmación a:', numberId._serialized);
-      await client.sendMessage(numberId._serialized, msg);
+      try {
+        await client.sendMessage(numberId._serialized, msg);
+      } catch (e) {
+        console.error('Error enviando mensaje de confirmación:', e);
+      }
     }
   } else {
     console.log('Garantía agregada en modo silencioso (shh), no se envía mensaje.');
@@ -414,7 +430,7 @@ function particionarOfertas(ofertas, count) {
    Manejo de Mensajes
 -------------------------------------- */
 client.on('message', async (message) => {
-  // Normalizamos el mensaje quitando acentos para comandos (por ejemplo "garantía" se vuelve "garantia")
+  // Normalizar el mensaje para eliminar acentos (por ejemplo, "garantía" se convierte en "garantia")
   const normalizedText = removeAccents(message.body.trim().toLowerCase());
   console.debug('Mensaje recibido:', message.body);
   const sender = message.from.split('@')[0].replace('+', '');
@@ -445,7 +461,7 @@ client.on('message', async (message) => {
   if (removeAccents(message.body.trim().toLowerCase()) === 'garantia') {
     const numeroCliente = message.from.split('@')[0];
     console.log('Comando garantia recibido de:', numeroCliente);
-    // Usar el número tal cual, ya que se almacenó con "51" al inicio
+    // Se asume que en la BD los números se guardan ya en formato "51xxxxxxxxx"
     const garantias = await Comprador.find({ numero: numeroCliente });
     if (!garantias || garantias.length === 0) {
       await message.reply('No tienes garantías vigentes registradas.');
@@ -477,6 +493,7 @@ client.on('message', async (message) => {
     if (normalizedText === 'reporte diario' || normalizedText === 'reporte semanal' || normalizedText === 'reporte mensual') {
       const tokens = message.body.trim().split(' ');
       const reportType = tokens[1].toLowerCase();
+      // Si se envía una fecha adicional (tercer token), se usa; de lo contrario se usa la fecha actual.
       const reportDate = tokens.length >= 3 ? parseDateDDMMYYYY(tokens[2]) : new Date();
       try {
         const report = await getReport(reportType, reportDate);
