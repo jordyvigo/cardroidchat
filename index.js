@@ -254,7 +254,7 @@ async function agregarGarantia(texto, client) {
   console.log('Comando agregar:', texto);
   const tokens = texto.trim().split(' ');
   console.log('Tokens parseados:', tokens);
-  // Se espera que el comando comience con "agregar" (ignoramos mayúsculas/minúsculas)
+  // Eliminar el primer token ("agregar")
   tokens.shift();
   let silent = false;
   if (tokens[tokens.length - 1] && tokens[tokens.length - 1].toLowerCase() === 'shh') {
@@ -284,7 +284,6 @@ async function agregarGarantia(texto, client) {
   console.log('Teléfono parseado:', phone);
   const product = tokens.join(' ');
   console.log('Producto parseado:', product);
-  // Si el número no empieza con "51", se le antepone "51"
   if (!phone.startsWith('51')) {
     phone = '51' + phone;
   }
@@ -428,262 +427,98 @@ function particionarOfertas(ofertas, count) {
 }
 
 /* --------------------------------------
-   Manejo de Mensajes
+   Nuevo Endpoint: Enviar Mensaje Personalizado (CRM)
+   Ahora se pueden elegir:
+    - La lista: "clientes", "compradores" o "especifico"
+    - Si es "especifico", se ingresa el número
+    - Se ingresa el mensaje a enviar (texto)
+    - Opcional: URL de imagen y descripción (caption)
 -------------------------------------- */
-client.on('message', async (message) => {
-  // Normalizar el mensaje quitando acentos para comandos (por ejemplo, "garantía" se convierte en "garantia")
-  const normalizedText = removeAccents(message.body.trim().toLowerCase());
-  console.debug('Mensaje recibido:', message.body);
-  const sender = message.from.split('@')[0].replace('+', '');
-  
-  /* ----- Comando AYUDA (solo admin) ----- */
-  if (normalizedText === 'ayuda') {
-    if (sender !== adminNumber) {
-      await message.reply('No tienes permisos para ver la ayuda.');
-      return;
-    }
-    const helpText = `Comandos disponibles:
-1. **agregar**: Agrega una garantía.
-   Formato: agregar <producto> <número> [<placa>] [<fecha>] [shh]
-   Ejemplo: agregar alarma 931367147 abc124 01/01/2025
-2. **garantia**: El cliente puede escribir "garantía" o "garantia" para ver sus garantías vigentes.
-3. **programar**: Programa un mensaje.
-   Ejemplo: programar cita para instalación 31/01/25 932426069
-4. **gasto / venta**: Registra una transacción.
-5. **reporte diario / reporte semanal / reporte mensual**: Solicita un reporte. Opcionalmente, agrega la fecha (DD/MM/YYYY) para el reporte.
-6. **oferta / marzo**: Recibe promociones.
-7. **enviar oferta <número>**: Envía 8 ofertas a un número.
-8. **enviar archivo <número>**: Envía un archivo adjunto a un número.`;
-    await message.reply(helpText);
-    return;
-  }
-  
-  /* ----- Comando GARANTIA (para el cliente) ----- */
-  if (removeAccents(message.body.trim().toLowerCase()) === 'garantia') {
-    const numeroCliente = message.from.split('@')[0];
-    console.log('Comando garantia recibido de:', numeroCliente);
-    // Se consulta en compradores usando el número tal como se guardó (por ejemplo "51931367147")
-    const garantias = await Comprador.find({ numero: numeroCliente });
-    if (!garantias || garantias.length === 0) {
-      await message.reply('No tienes garantías vigentes registradas.');
-      return;
-    }
-    let respuesta = 'Tus garantías vigentes:\n\n';
-    garantias.forEach(g => {
-      const diasRestantes = daysRemaining(g.fechaExpiracion);
-      respuesta += `Producto: ${g.producto}${g.placa ? ' (Placa: ' + g.placa + ')' : ''}\n`;
-      respuesta += `Fecha inicio: ${g.fechaInicio}\n`;
-      respuesta += `Expira: ${g.fechaExpiracion} (faltan ${diasRestantes} días)\n\n`;
-    });
-    await message.reply(respuesta);
-    return;
-  }
-  
-  /* ----- Comandos del admin ----- */
-  if (sender === adminNumber) {
-    if (normalizedText.startsWith('agregar')) {
-      try {
-        const result = await agregarGarantia(message.body, client);
-        await message.reply(result);
-      } catch (err) {
-        console.error('Error agregando garantía:', err);
-        await message.reply('Error: Formato incorrecto. Ejemplo: agregar alarma 931367147 [placa] [01/01/2025] [shh]');
-      }
-      return;
-    }
-    if (normalizedText.startsWith('programar')) {
-      try {
-        const result = await programarMensaje(message.body);
-        await message.reply(result);
-      } catch (err) {
-        console.error('Error programando mensaje:', err);
-        await message.reply('Error: Formato incorrecto. Ejemplo: programar cita para instalación 31/01/25 932426069');
-      }
-      return;
-    }
-    if (normalizedText === 'reporte diario' || normalizedText === 'reporte semanal' || normalizedText === 'reporte mensual') {
-      const tokens = message.body.trim().split(' ');
-      const reportType = tokens[1].toLowerCase();
-      // Si se envía una fecha adicional (tercer token), se usa; de lo contrario se usa la fecha actual.
-      const reportDate = tokens.length >= 3 ? parseDateDDMMYYYY(tokens[2]) : new Date();
-      try {
-        const report = await getReport(reportType, reportDate);
-        await message.reply(report);
-      } catch (err) {
-        console.error('Error generando reporte:', err);
-        await message.reply('Error generando el reporte.');
-      }
-      return;
-    }
-    if (normalizedText.startsWith('gasto') || normalizedText.startsWith('venta')) {
-      await registrarTransaccionCSV(message.body);
-      await message.reply('Transacción registrada.');
-      return;
-    }
-    if (normalizedText.startsWith('enviar oferta')) {
-      console.log('Comando enviar oferta recibido:', message.body);
-      const tokens = message.body.trim().split(' ');
-      if (tokens.length < 3) {
-        await message.reply('Formato incorrecto. Ejemplo: enviar oferta 932426069');
-        return;
-      }
-      let target = tokens[2];
+app.get('/crm/send-custom', (req, res) => {
+  res.send(`
+    <html>
+      <head>
+        <title>Enviar Mensaje Personalizado</title>
+      </head>
+      <body>
+        <h1>Enviar Mensaje Personalizado</h1>
+        <form method="POST" action="/crm/send-custom">
+          <label for="collection">Selecciona la lista:</label>
+          <select name="collection" id="collection">
+            <option value="clientes">Clientes</option>
+            <option value="compradores">Compradores</option>
+            <option value="especifico">Específico</option>
+          </select><br><br>
+          <div id="numeroField" style="display:none;">
+            <label for="numero">Número (sin '51'):</label>
+            <input type="text" id="numero" name="numero" /><br><br>
+          </div>
+          <label for="message">Mensaje a enviar:</label><br>
+          <textarea name="message" id="message" rows="4" cols="50"></textarea><br><br>
+          <label for="imageUrl">URL de imagen (opcional):</label><br>
+          <input type="text" id="imageUrl" name="imageUrl" /><br><br>
+          <label for="imageCaption">Descripción de imagen (opcional):</label><br>
+          <input type="text" id="imageCaption" name="imageCaption" /><br><br>
+          <button type="submit">Enviar Mensaje</button>
+        </form>
+        <script>
+          const collectionSelect = document.getElementById('collection');
+          const numeroField = document.getElementById('numeroField');
+          collectionSelect.addEventListener('change', () => {
+            if(collectionSelect.value === 'especifico'){
+              numeroField.style.display = 'block';
+            } else {
+              numeroField.style.display = 'none';
+            }
+          });
+        </script>
+      </body>
+    </html>
+  `);
+});
+
+app.post('/crm/send-custom', async (req, res) => {
+  const { collection, message: customMessage, numero, imageUrl, imageCaption } = req.body;
+  let targets = [];
+  try {
+    if (collection === 'especifico') {
+      if (!numero) return res.send("Debes ingresar un número para enviar el mensaje específico.");
+      let target = numero.trim();
       if (!target.startsWith('51')) {
         target = '51' + target;
       }
-      console.log('Número final para oferta:', target);
-      let numberId;
-      try {
-        numberId = await client.getNumberId(target);
-        console.log('getNumberId devuelto (oferta):', numberId);
-      } catch (err) {
-        console.error('Error en getNumberId (oferta):', err);
-      }
-      if (!numberId) {
-        console.warn('getNumberId devolvió null; usando fallback:', target + '@c.us');
-        numberId = { _serialized: target + '@c.us' };
-      }
-      const ofertas = cargarOfertas();
-      if (ofertas.length === 0) {
-        await message.reply('No hay ofertas disponibles.');
-        return;
-      }
-      function getRandomPromos(promos, count) {
-        const shuffled = promos.slice().sort(() => 0.5 - Math.random());
-        return shuffled.slice(0, count);
-      }
-      const selectedOffers = getRandomPromos(ofertas, 8);
-      console.log('Enviando saludo inicial a:', numberId._serialized);
-      await client.sendMessage(numberId._serialized, '¡Hola! Aquí tienes nuestras promociones:');
-      for (const promo of selectedOffers) {
-        try {
-          console.log('Enviando oferta a:', numberId._serialized, '->', promo.descripcion);
-          const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
-          const base64Image = Buffer.from(response.data, 'binary').toString('base64');
-          const mimeType = response.headers['content-type'];
-          const media = new MessageMedia(mimeType, base64Image, 'oferta.png');
-          await client.sendMessage(numberId._serialized, media, { caption: promo.descripcion });
-          await sleep(1500);
-        } catch (error) {
-          console.error('Error al enviar oferta:', error);
-        }
-      }
-      await message.reply(`Oferta enviada al número ${target}.`);
-      return;
-    }
-    if (normalizedText.startsWith('enviar archivo')) {
-      console.log('Comando enviar archivo recibido:', message.body);
-      const tokens = message.body.trim().split(' ');
-      if (tokens.length < 3) {
-        await message.reply('Formato incorrecto. Ejemplo: enviar archivo 932426069');
-        return;
-      }
-      let target = tokens[2];
-      if (!target.startsWith('51')) {
-        target = '51' + target;
-      }
-      console.log('Número final para archivo:', target);
-      let numberId;
-      try {
-        numberId = await client.getNumberId(target);
-        console.log('getNumberId devuelto (archivo):', numberId);
-      } catch (err) {
-        console.error('Error en getNumberId (archivo):', err);
-      }
-      if (!numberId) {
-        console.warn('getNumberId devolvió null; usando fallback:', target + '@c.us');
-        numberId = { _serialized: target + '@c.us' };
-      }
-      if (!message.hasMedia) {
-        await message.reply('No se encontró ningún archivo adjunto en tu mensaje.');
-        return;
-      }
-      try {
-        const media = await message.downloadMedia();
-        console.log('Enviando archivo a:', numberId._serialized);
-        await client.sendMessage(numberId._serialized, media, { caption: 'Archivo enviado desde el admin.' });
-        await message.reply(`Archivo enviado al número ${target}.`);
-      } catch (err) {
-        console.error('Error al enviar archivo:', err);
-        await message.reply('Error enviando el archivo.');
-      }
-      return;
-    }
-  }
-  
-  /* ----- Flujo OFERTA/MARZO (usuarios generales) ----- */
-  if (normalizedText === 'oferta') {
-    console.log('Comando oferta recibido de:', sender);
-    await registrarInteraccion(message.from.split('@')[0], 'solicitudOferta', message.body);
-    try {
-      await message.react('🤑');
-    } catch (err) {
-      console.error('Error al reaccionar:', err);
-    }
-    registrarNumero(message.from).catch(err => console.error(err));
-    if (!userOfferState[message.from]) {
-      await message.reply('¡Hola! Aquí tienes nuestras 8 promociones iniciales:');
-      const ofertas = cargarOfertas();
-      if (ofertas.length === 0) {
-        await message.reply('Actualmente no hay ofertas disponibles.');
-        return;
-      }
-      const { firstBatch, remainingBatch } = particionarOfertas(ofertas, 8);
-      userOfferState[message.from] = {
-        requestCount: 1,
-        firstOffers: firstBatch,
-        remainingOffers: remainingBatch,
-        timeout: setTimeout(async () => {
-          if (userOfferState[message.from] && userOfferState[message.from].remainingOffers.length > 0) {
-            await client.sendMessage(message.from, '¿Podrías mencionarme para qué modelo y año de auto deseas los productos?');
-            await registrarInteraccion(message.from.split('@')[0], 'solicitudInfo', 'Seguimiento: falta información del modelo y año');
-          }
-        }, 10 * 60 * 1000)
-      };
-      for (const promo of userOfferState[message.from].firstOffers) {
-        try {
-          console.log('Enviando promo a', message.from, '->', promo.descripcion);
-          const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
-          const base64Image = Buffer.from(response.data, 'binary').toString('base64');
-          const mimeType = response.headers['content-type'];
-          const media = new MessageMedia(mimeType, base64Image, 'oferta.png');
-          await client.sendMessage(message.from, media, { caption: promo.descripcion });
-          await sleep(2000);
-        } catch (error) {
-          console.error('Error al enviar oferta:', error);
-        }
-      }
-      await message.reply('Si deseas ver más ofertas, escribe "marzo".');
-    }
-    return;
-  } else if (normalizedText === 'marzo') {
-    console.log('Comando marzo recibido de:', sender);
-    if (userOfferState[message.from] && userOfferState[message.from].remainingOffers && userOfferState[message.from].remainingOffers.length > 0) {
-      if (userOfferState[message.from].timeout) clearTimeout(userOfferState[message.from].timeout);
-      console.debug("Remaining offers count:", userOfferState[message.from].remainingOffers.length);
-      await message.reply('Aquí tienes más ofertas:');
-      const offersToSend = userOfferState[message.from].remainingOffers.slice(0, 8);
-      for (const promo of offersToSend) {
-        try {
-          console.log('Enviando promo (marzo) a', message.from, '->', promo.descripcion);
-          const response = await axios.get(promo.url, { responseType: 'arraybuffer' });
-          const base64Image = Buffer.from(response.data, 'binary').toString('base64');
-          const mimeType = response.headers['content-type'];
-          const media = new MessageMedia(mimeType, base64Image, 'oferta.png');
-          await client.sendMessage(message.from, media, { caption: promo.descripcion });
-          await sleep(1500);
-        } catch (error) {
-          console.error('Error al enviar oferta:', error);
-        }
-      }
-      userOfferState[message.from].remainingOffers = userOfferState[message.from].remainingOffers.slice(8);
-      if (userOfferState[message.from].remainingOffers.length === 0) {
-        await message.reply('Ya te hemos enviado todas las ofertas disponibles.');
-        delete userOfferState[message.from];
-      }
+      targets.push(target + '@c.us');
+    } else if (collection === 'clientes') {
+      const docs = await Cliente.find({});
+      targets = docs.map(doc => doc.numero + '@c.us');
+    } else if (collection === 'compradores') {
+      const docs = await Comprador.find({});
+      targets = docs.map(doc => doc.numero + '@c.us');
     } else {
-      await message.reply('No hay ofertas adicionales para mostrar.');
+      return res.send("Colección inválida");
     }
+    for (const t of targets) {
+      // Si se proporcionó URL de imagen, se envía la imagen con su caption (si se da)
+      if (imageUrl && imageUrl.trim() !== "") {
+        try {
+          const response = await axios.get(imageUrl.trim(), { responseType: 'arraybuffer' });
+          const base64Image = Buffer.from(response.data, 'binary').toString('base64');
+          const mimeType = response.headers['content-type'];
+          const media = new MessageMedia(mimeType, base64Image, 'imagen.png');
+          await client.sendMessage(t, media, { caption: imageCaption || "" });
+          await sleep(1000);
+        } catch (e) {
+          console.error("Error enviando imagen a", t, e);
+        }
+      }
+      // Enviar mensaje de texto
+      await client.sendMessage(t, customMessage);
+      await sleep(1000);
+    }
+    res.send(`Mensaje personalizado enviado a ${targets.length} destinatarios.`);
+  } catch (e) {
+    console.error(e);
+    res.send("Error al enviar mensajes: " + e);
   }
 });
 
@@ -739,58 +574,7 @@ app.get('/crm/send-initial-offers', async (req, res) => {
 });
 
 /* --------------------------------------
-   Nuevo Endpoint: Enviar Mensaje Personalizado (CRM)
-   Se muestra un formulario para elegir la colección y personalizar el mensaje
--------------------------------------- */
-app.get('/crm/send-custom', (req, res) => {
-  res.send(`
-    <html>
-      <head>
-        <title>Enviar Mensaje Personalizado</title>
-      </head>
-      <body>
-        <h1>Enviar Mensaje Personalizado</h1>
-        <form method="POST" action="/crm/send-custom">
-          <label for="collection">Selecciona la lista:</label>
-          <select name="collection" id="collection">
-            <option value="clientes">Clientes</option>
-            <option value="compradores">Compradores</option>
-          </select><br><br>
-          <label for="message">Mensaje a enviar:</label><br>
-          <textarea name="message" id="message" rows="5" cols="50"></textarea><br><br>
-          <button type="submit">Enviar Mensaje</button>
-        </form>
-      </body>
-    </html>
-  `);
-});
-
-app.post('/crm/send-custom', async (req, res) => {
-  const { collection, message: customMessage } = req.body;
-  let Model;
-  if (collection === 'clientes') {
-    Model = Cliente;
-  } else if (collection === 'compradores') {
-    Model = Comprador;
-  } else {
-    return res.send("Colección inválida");
-  }
-  try {
-    const docs = await Model.find({});
-    for (const doc of docs) {
-      // Enviamos el mensaje al número almacenado
-      await client.sendMessage(doc.numero + '@c.us', customMessage);
-      await sleep(1000);
-    }
-    res.send(`Mensaje enviado a todos los usuarios de la lista ${collection}.`);
-  } catch (e) {
-    console.error(e);
-    res.send("Error al enviar mensajes: " + e);
-  }
-});
-
-/* --------------------------------------
-   Dashboard CRM simple (modificado para incluir enlace al envío personalizado)
+   Dashboard CRM simple (incluye enlace al envío personalizado)
 -------------------------------------- */
 app.get('/crm', async (req, res) => {
   try {
