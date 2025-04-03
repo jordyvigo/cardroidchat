@@ -251,7 +251,7 @@ async function registrarNumero(numeroWhatsApp) {
    Al agregar la garantía se elimina el cliente de "clientes" y se agrega a "compradores"
 -------------------------------------- */
 async function agregarGarantia(texto, client) {
-  console.log('Comando agregar:', texto);
+  console.log('Comando agregar recibido:', texto);
   const tokens = texto.trim().split(' ');
   console.log('Tokens parseados:', tokens);
   // Eliminar el primer token ("agregar")
@@ -310,10 +310,12 @@ async function agregarGarantia(texto, client) {
     fechaExpiracion: fechaExpiracion
   });
   await newRecord.save();
+  console.log('Garantía guardada en "compradores"');
 
   // Mover el cliente: eliminar de "clientes" y "offers"
   await Cliente.deleteOne({ numero: phone });
   await Offer.deleteOne({ numero: phone });
+  console.log('Cliente eliminado de "clientes" y "offers"');
 
   if (!silent) {
     if (phone === botNumber) {
@@ -342,7 +344,7 @@ async function agregarGarantia(texto, client) {
    Formato: "programar <mensaje> <fecha> <número>"
 -------------------------------------- */
 async function programarMensaje(texto) {
-  console.log('Comando programar:', texto);
+  console.log('Comando programar recibido:', texto);
   const tokens = texto.trim().split(' ');
   tokens.shift();
   if (tokens.length < 3) {
@@ -428,11 +430,8 @@ function particionarOfertas(ofertas, count) {
 
 /* --------------------------------------
    Nuevo Endpoint: Enviar Mensaje Personalizado (CRM)
-   Ahora se pueden elegir:
-    - La lista: "clientes", "compradores" o "especifico"
-    - Si es "especifico", se ingresa el número
-    - Se ingresa el mensaje a enviar (texto)
-    - Opcional: URL de imagen y descripción (caption)
+   Permite elegir la lista ("clientes", "compradores" o "especifico"), ingresar un número (si es específico),
+   un mensaje, y opcionalmente una URL de imagen con descripción.
 -------------------------------------- */
 app.get('/crm/send-custom', (req, res) => {
   res.send(`
@@ -497,21 +496,22 @@ app.post('/crm/send-custom', async (req, res) => {
     } else {
       return res.send("Colección inválida");
     }
+    console.log("Destinatarios:", targets);
     for (const t of targets) {
-      // Si se proporcionó URL de imagen, se envía la imagen con su caption (si se da)
       if (imageUrl && imageUrl.trim() !== "") {
         try {
           const response = await axios.get(imageUrl.trim(), { responseType: 'arraybuffer' });
           const base64Image = Buffer.from(response.data, 'binary').toString('base64');
           const mimeType = response.headers['content-type'];
           const media = new MessageMedia(mimeType, base64Image, 'imagen.png');
+          console.log("Enviando imagen a:", t);
           await client.sendMessage(t, media, { caption: imageCaption || "" });
           await sleep(1000);
         } catch (e) {
           console.error("Error enviando imagen a", t, e);
         }
       }
-      // Enviar mensaje de texto
+      console.log("Enviando mensaje de texto a:", t);
       await client.sendMessage(t, customMessage);
       await sleep(1000);
     }
@@ -524,6 +524,7 @@ app.post('/crm/send-custom', async (req, res) => {
 
 /* --------------------------------------
    Endpoint para envío masivo de ofertas
+   Se ajusta el lapso total a 2 horas para evitar flag spam.
 -------------------------------------- */
 app.get('/crm/send-initial-offers', async (req, res) => {
   try {
@@ -532,11 +533,12 @@ app.get('/crm/send-initial-offers', async (req, res) => {
     if (ofertas.length === 0) return res.send('No hay ofertas disponibles.');
     const mensajeIntro = "En esta temporada de campaña escolar, entendemos la importancia de maximizar tus ahorros. Por ello, te ofrecemos descuentos exclusivos para que puedas optimizar y mejorar tu vehículo este mes. ¡Descubre nuestras ofertas especiales!";
     const totalClientes = clientes.length;
-    const totalTime = 4 * 3600 * 1000;
+    const totalTime = 2 * 3600 * 1000; // 2 horas en milisegundos
     const delayBetweenClients = totalClientes > 0 ? totalTime / totalClientes : 0;
     console.log(`Enviando ofertas a ${totalClientes} clientes con un intervalo de ${(delayBetweenClients/1000).toFixed(2)} segundos.`);
     async function enviarOfertasCliente(cliente) {
       const numero = `${cliente.numero}@c.us`;
+      console.log(`Enviando mensaje introductorio a ${cliente.numero}`);
       await client.sendMessage(numero, mensajeIntro);
       function getRandomPromos(promos, count) {
         const shuffled = promos.slice().sort(() => 0.5 - Math.random());
@@ -545,6 +547,7 @@ app.get('/crm/send-initial-offers', async (req, res) => {
       const selectedOffers = getRandomPromos(ofertas, 8);
       for (const oferta of selectedOffers) {
         try {
+          console.log(`Enviando oferta a ${cliente.numero}: ${oferta.descripcion}`);
           const response = await axios.get(oferta.url, { responseType: 'arraybuffer' });
           const base64Image = Buffer.from(response.data, 'binary').toString('base64');
           const mimeType = response.headers['content-type'];
