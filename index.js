@@ -32,6 +32,7 @@ function parseDateDDMMYYYY(str) {
   if (!str) throw new Error("Fecha indefinida");
   let [d, m, y] = str.split('/');
   if (y && y.length === 2) y = '20' + y;
+  console.debug(`parseDateDDMMYYYY: d=${d}, m=${m}, y=${y}`);
   return new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10));
 }
 
@@ -81,6 +82,7 @@ function getReport(reportType, reportDate = new Date()) {
         } else if (reportType === 'mensual') {
           startDate = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
         }
+        console.debug(`getReport: now=${formatDateDDMMYYYY(now)} | startDate=${formatDateDDMMYYYY(startDate)}`);
         const filtered = results.filter(row => {
           if (!row.Fecha) {
             console.warn("Fila sin campo 'Fecha':", row);
@@ -166,6 +168,7 @@ const interaccionSchema = new mongoose.Schema({
 const Interaccion = mongoose.model('Interaccion', interaccionSchema, 'interacciones');
 
 async function registrarInteraccion(numero, tipo, mensaje, ofertaReferencia = null) {
+  console.debug(`Registrar interacción: ${numero} | ${tipo} | ${mensaje}`);
   const interaccion = new Interaccion({ numero, tipo, mensaje, ofertaReferencia });
   await interaccion.save();
   console.log(`Interacción registrada para ${numero}: ${tipo}`);
@@ -189,9 +192,9 @@ const Offer = mongoose.model('Offer', offerSchema, 'offers');
    Registrar Transacción en CSV
 -------------------------------------- */
 async function registrarTransaccionCSV(texto) {
-  console.log('Registrando transacción con:', texto);
+  console.debug('Registrando transacción:', texto);
   const parts = texto.trim().split(' ');
-  console.log('Parts:', parts);
+  console.debug('Parts:', parts);
   const type = parts[0].toLowerCase();
   let currency = 'soles';
   let amount;
@@ -203,7 +206,7 @@ async function registrarTransaccionCSV(texto) {
     amount = parseFloat(parts[parts.length - 1]);
     description = parts.slice(1, parts.length - 1).join(' ');
   }
-  console.log('Type:', type, 'Amount:', amount, 'Description:', description);
+  console.debug('Parsed transaction:', { type, amount, description });
   if (isNaN(amount)) {
     console.error('Error: monto no válido.');
     return;
@@ -229,7 +232,7 @@ async function registrarTransaccionCSV(texto) {
 -------------------------------------- */
 async function registrarNumero(numeroWhatsApp) {
   const numeroLimpio = numeroWhatsApp.split('@')[0];
-  console.log('Registrando/actualizando cliente:', numeroLimpio);
+  console.debug('Registrar/actualizar cliente:', numeroLimpio);
   let cliente = await Cliente.findOneAndUpdate(
     { numero: numeroLimpio },
     { $set: { lastInteraction: new Date() } },
@@ -251,16 +254,16 @@ async function registrarNumero(numeroWhatsApp) {
    Al agregar la garantía se elimina el cliente de "clientes" y se agrega a "compradores"
 -------------------------------------- */
 async function agregarGarantia(texto, client) {
-  console.log('Comando agregar recibido:', texto);
+  console.debug('Comando agregar recibido:', texto);
   const tokens = texto.trim().split(' ');
-  console.log('Tokens parseados:', tokens);
+  console.debug('Tokens parseados:', tokens);
   // Eliminar el primer token ("agregar")
   tokens.shift();
   let silent = false;
   if (tokens[tokens.length - 1] && tokens[tokens.length - 1].toLowerCase() === 'shh') {
     silent = true;
     tokens.pop();
-    console.log('Modo silencioso (shh) activado');
+    console.debug('Modo silencioso (shh) activado');
   }
   if (tokens.length < 2) {
     throw new Error('Formato incorrecto. Ejemplo: agregar radio 998877665 [placa] [01/01/2025] [shh]');
@@ -271,28 +274,28 @@ async function agregarGarantia(texto, client) {
   const plateRegex = /^[A-Za-z0-9]{6}$/;
   if (dateRegex.test(tokens[tokens.length - 1])) {
     fechaStr = tokens.pop();
-    console.log('Fecha detectada:', fechaStr);
+    console.debug('Fecha detectada:', fechaStr);
   }
   if (tokens.length >= 2 && plateRegex.test(tokens[tokens.length - 1])) {
     plate = tokens.pop();
-    console.log('Placa detectada:', plate);
+    console.debug('Placa detectada:', plate);
   }
   if (tokens.length < 1) {
     throw new Error('No se encontró el número de teléfono.');
   }
   let phone = tokens.pop();
-  console.log('Teléfono parseado:', phone);
+  console.debug('Teléfono parseado:', phone);
   const product = tokens.join(' ');
-  console.log('Producto parseado:', product);
+  console.debug('Producto parseado:', product);
   if (!phone.startsWith('51')) {
     phone = '51' + phone;
   }
-  console.log('Número final (sin +):', phone);
+  console.debug('Número final (sin +):', phone);
 
   let numberId;
   try {
     numberId = await client.getNumberId(phone);
-    console.log('getNumberId en agregarGarantia:', numberId);
+    console.debug('getNumberId en agregarGarantia:', numberId);
   } catch (err) {
     console.error('Error en getNumberId al agregar garantía:', err);
   }
@@ -319,14 +322,14 @@ async function agregarGarantia(texto, client) {
 
   if (!silent) {
     if (phone === botNumber) {
-      console.log('No se envía mensaje de confirmación porque el número destino es el del bot.');
+      console.debug('No se envía mensaje de confirmación porque el número destino es el del bot.');
     } else {
       if (!numberId) {
         console.warn('getNumberId devolvió null; usando fallback:', phone + '@c.us');
         numberId = { _serialized: phone + '@c.us' };
       }
       const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr}\nFecha de expiración: ${fechaExpiracion}\nEscribe "garantía" para ver tus garantías vigentes.`;
-      console.log('Enviando mensaje de confirmación a:', numberId._serialized);
+      console.debug('Enviando mensaje de confirmación a:', numberId._serialized);
       try {
         await client.sendMessage(numberId._serialized, msg);
       } catch (e) {
@@ -334,7 +337,7 @@ async function agregarGarantia(texto, client) {
       }
     }
   } else {
-    console.log('Garantía agregada en modo silencioso (shh), no se envía mensaje.');
+    console.debug('Garantía agregada en modo silencioso (shh), no se envía mensaje.');
   }
   return `Garantía agregada para ${product} al cliente ${phone}${plate ? ' (Placa: ' + plate + ')' : ''}.`;
 }
@@ -344,7 +347,7 @@ async function agregarGarantia(texto, client) {
    Formato: "programar <mensaje> <fecha> <número>"
 -------------------------------------- */
 async function programarMensaje(texto) {
-  console.log('Comando programar recibido:', texto);
+  console.debug('Comando programar recibido:', texto);
   const tokens = texto.trim().split(' ');
   tokens.shift();
   if (tokens.length < 3) {
@@ -353,9 +356,9 @@ async function programarMensaje(texto) {
   const target = tokens.pop();
   const dateToken = tokens.pop();
   const mensajeProgramado = tokens.join(' ');
-  console.log('Mensaje programado:', mensajeProgramado);
-  console.log('Fecha detectada:', dateToken);
-  console.log('Número destino:', target);
+  console.debug('Mensaje programado:', mensajeProgramado);
+  console.debug('Fecha detectada:', dateToken);
+  console.debug('Número destino:', target);
   const scheduledDate = parseDateDDMMYYYY(dateToken);
   schedule.scheduleJob(scheduledDate, async function() {
     await client.sendMessage(target + '@c.us', `Recordatorio: ${mensajeProgramado}`);
@@ -408,6 +411,7 @@ const userOfferState = {};
 function cargarOfertas() {
   try {
     const data = fs.readFileSync(path.join(__dirname, 'offers.json'), 'utf8');
+    console.debug('Ofertas cargadas:', data);
     return JSON.parse(data);
   } catch (err) {
     console.error('Error cargando ofertas:', err);
@@ -496,7 +500,7 @@ app.post('/crm/send-custom', async (req, res) => {
     } else {
       return res.send("Colección inválida");
     }
-    console.log("Destinatarios:", targets);
+    console.debug("Destinatarios:", targets);
     for (const t of targets) {
       if (imageUrl && imageUrl.trim() !== "") {
         try {
@@ -504,14 +508,14 @@ app.post('/crm/send-custom', async (req, res) => {
           const base64Image = Buffer.from(response.data, 'binary').toString('base64');
           const mimeType = response.headers['content-type'];
           const media = new MessageMedia(mimeType, base64Image, 'imagen.png');
-          console.log("Enviando imagen a:", t);
+          console.debug("Enviando imagen a:", t);
           await client.sendMessage(t, media, { caption: imageCaption || "" });
           await sleep(1000);
         } catch (e) {
           console.error("Error enviando imagen a", t, e);
         }
       }
-      console.log("Enviando mensaje de texto a:", t);
+      console.debug("Enviando mensaje de texto a:", t);
       await client.sendMessage(t, customMessage);
       await sleep(1000);
     }
@@ -655,8 +659,10 @@ schedule.scheduleJob('0 8 * * *', async function() {
   const today = new Date();
   const targetDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
   const targetStr = formatDateDDMMYYYY(targetDate);
+  console.debug(`Recordatorio: Buscando garantías que expiran el ${targetStr}`);
   const expiringGuarantees = await Comprador.find({ fechaExpiracion: targetStr });
   expiringGuarantees.forEach(async guarantee => {
+    console.debug(`Enviando recordatorio a ${guarantee.numero} para ${guarantee.producto}`);
     await client.sendMessage(
       guarantee.numero + '@c.us',
       `Recordatorio: Tu garantía para ${guarantee.producto}${guarantee.placa ? ' (Placa: ' + guarantee.placa + ')' : ''} expira el ${guarantee.fechaExpiracion}.`
