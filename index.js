@@ -30,7 +30,7 @@ function sleep(ms) {
 }
 
 function getCurrentDateGMTMinus5() {
-  // Usa la zona horaria de Lima (GMT-5)
+  // Obtiene la fecha actual en la zona horaria de Lima (GMT-5)
   return new Date(new Date().toLocaleString("en-US", { timeZone: "America/Lima" }));
 }
 
@@ -283,7 +283,8 @@ async function agregarGarantia(texto, client) {
   console.debug('Comando agregar recibido:', texto);
   const tokens = texto.trim().split(' ');
   console.debug('Tokens parseados:', tokens);
-  tokens.shift(); // Eliminar "agregar"
+  // Eliminar el primer token ("agregar")
+  tokens.shift();
   let silent = false;
   if (tokens[tokens.length - 1] && tokens[tokens.length - 1].toLowerCase() === 'shh') {
     silent = true;
@@ -549,6 +550,7 @@ app.post('/financiamiento/marcar', async (req, res) => {
 
 /* --------------------------------------
    Configuración de WhatsApp Web (LocalAuth)
+   Se declara una sola vez para toda la aplicación
 -------------------------------------- */
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
@@ -615,8 +617,6 @@ function particionarOfertas(ofertas, count) {
 
 /* --------------------------------------
    Nuevo Endpoint: Enviar Mensaje Personalizado (CRM)
-   Permite elegir la lista ("clientes", "compradores" o "especifico"), ingresar un número (si es específico),
-   un mensaje, y opcionalmente una URL de imagen con descripción.
 -------------------------------------- */
 app.get('/crm/send-custom', (req, res) => {
   res.send(`
@@ -879,7 +879,7 @@ schedule.scheduleJob('30 8 * * *', async function() {
 
 /* --------------------------------------
    Configuración de WhatsApp Web (LocalAuth)
-   Se declara una sola vez, para usarlo en todas las funciones
+   Se declara SÓLO UNA VEZ para toda la aplicación
 -------------------------------------- */
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
