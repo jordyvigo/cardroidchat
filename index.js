@@ -9,6 +9,7 @@ const mongoose = require('mongoose');
 const createCsvWriter = require('csv-writer').createObjectCsvWriter;
 const csvParser = require('csv-parser');
 const schedule = require('node-schedule');
+const PDFDocument = require('pdfkit');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,7 +17,7 @@ const PORT = process.env.PORT || 3000;
 // Habilitar el body parser para formularios
 app.use(express.urlencoded({ extended: true }));
 
-// Número de admin (almacenado sin el símbolo "+", por ejemplo "51931367147")
+// Número de admin (almacenado sin el símbolo "+")
 const adminNumber = "51931367147";
 // Número del bot (para evitar envíos a sí mismo)
 const botNumber = "51999999999"; // Ajusta según corresponda
@@ -26,6 +27,11 @@ const botNumber = "51999999999"; // Ajusta según corresponda
 -------------------------------------- */
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getCurrentDateGMTMinus5() {
+  // Usa la zona horaria de Lima (GMT-5)
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "America/Lima" }));
 }
 
 function parseDateDDMMYYYY(str) {
@@ -48,7 +54,7 @@ function formatDateDDMMYYYY(date) {
 function daysRemaining(expirationDateStr) {
   try {
     const expDate = parseDateDDMMYYYY(expirationDateStr);
-    const today = new Date();
+    const today = getCurrentDateGMTMinus5();
     const diff = expDate - today;
     return Math.ceil(diff / (1000 * 3600 * 24));
   } catch (e) {
@@ -57,16 +63,15 @@ function daysRemaining(expirationDateStr) {
   }
 }
 
-// Función para remover acentos (para normalizar "garantía")
+// Normalizar cadenas para que "garantía" y "garantia" se traten igual
 function removeAccents(str) {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 /* --------------------------------------
    CSV + Report
-   Se asignan encabezados fijos: Fecha, Tipo, Producto, Monto, Moneda
 -------------------------------------- */
-function getReport(reportType, reportDate = new Date()) {
+function getReport(reportType, reportDate = getCurrentDateGMTMinus5()) {
   return new Promise((resolve, reject) => {
     const results = [];
     fs.createReadStream(path.join(__dirname, 'transactions.csv'))
@@ -174,14 +179,23 @@ async function registrarInteraccion(numero, tipo, mensaje, ofertaReferencia = nu
   console.log(`Interacción registrada para ${numero}: ${tipo}`);
 }
 
-const compradorSchema = new mongoose.Schema({
+// Modelo Financiamiento (con campo "nombre")
+const financiamientoSchema = new mongoose.Schema({
+  nombre: { type: String, required: true },
   numero: { type: String, required: true },
-  producto: { type: String, required: true },
-  placa: { type: String },
+  dni: { type: String, required: true },
+  placa: { type: String, required: true },
+  montoTotal: { type: Number, required: true },
+  cuotaInicial: { type: Number, default: 350 },
+  cuotas: [{
+    monto: { type: Number, required: true },
+    vencimiento: { type: String, required: true }, // DD/MM/YYYY
+    pagada: { type: Boolean, default: false }
+  }],
   fechaInicio: { type: String, required: true },
-  fechaExpiracion: { type: String, required: true }
+  fechaFin: { type: String }
 });
-const Comprador = mongoose.model('Comprador', compradorSchema, 'compradores');
+const Financiamiento = mongoose.model('Financiamiento', financiamientoSchema, 'financiamientos');
 
 const offerSchema = new mongoose.Schema({
   numero: { type: String, required: true, unique: true }
@@ -268,7 +282,8 @@ async function agregarGarantia(texto, client) {
   if (tokens.length < 2) {
     throw new Error('Formato incorrecto. Ejemplo: agregar radio 998877665 [placa] [01/01/2025] [shh]');
   }
-  let fechaStr = formatDateDDMMYYYY(new Date());
+  // Si no se proporciona fecha, se usa la fecha actual en GMT-5
+  let fechaStr = formatDateDDMMYYYY(getCurrentDateGMTMinus5());
   let plate = null;
   const dateRegex = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/;
   const plateRegex = /^[A-Za-z0-9]{6}$/;
@@ -351,7 +366,7 @@ async function programarMensaje(texto) {
   const tokens = texto.trim().split(' ');
   tokens.shift();
   if (tokens.length < 3) {
-    throw new Error('Formato incorrecto. Ejemplo: programar cita para instalación 31/01/25 932426069');
+    throw new Error('Formato incorrecto. Ejemplo: programar cita para instalacion 31/01/25 932426069');
   }
   const target = tokens.pop();
   const dateToken = tokens.pop();
@@ -365,6 +380,161 @@ async function programarMensaje(texto) {
   });
   return `Mensaje programado para ${target} el ${dateToken}: ${mensajeProgramado}`;
 }
+
+/* --------------------------------------
+   Función para generar contrato PDF con cronograma de pagos
+-------------------------------------- */
+async function generarContratoPDF(data) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument();
+    let buffers = [];
+    doc.on('data', buffers.push.bind(buffers));
+    doc.on('end', () => {
+      const pdfData = Buffer.concat(buffers);
+      resolve(pdfData);
+    });
+    doc.on('error', err => reject(err));
+
+    doc.fontSize(18).text('CONTRATO DE FINANCIAMIENTO', { align: 'center' });
+    doc.moveDown();
+    doc.fontSize(12).text(`Cliente: ${data.nombre} - DNI: ${data.dni}`);
+    doc.text(`Placa: ${data.placa}`);
+    doc.text(`Monto a financiar: ${data.montoTotal} soles`);
+    doc.text(`Cuota inicial: ${data.cuotaInicial} soles`);
+    doc.moveDown();
+    doc.text('Cronograma de pagos:');
+    doc.text(`Cuota 1: ${data.cuota1} soles, vence el ${data.fechaCuota1}`);
+    doc.text(`Cuota 2: ${data.cuota2} soles, vence el ${data.fechaCuota2}`);
+    doc.moveDown();
+    doc.text(`Fecha de inicio: ${data.fechaInicio}`);
+    doc.text(`Fecha de finalización: ${data.fechaFin}`);
+    doc.moveDown();
+    doc.text('Condiciones:');
+    doc.text('• El autoradio se bloqueará si no se completan los pagos.');
+    doc.text('• Este contrato es válido durante el periodo del financiamiento.');
+    doc.end();
+  });
+}
+
+/* --------------------------------------
+   Endpoint para registrar financiamiento y generar contrato PDF
+-------------------------------------- */
+app.post('/financiamiento/crear', async (req, res) => {
+  try {
+    // Se esperan: nombre, número, dni, placa y montoTotal (sin '+')
+    const { nombre, numero, dni, placa, montoTotal } = req.body;
+    console.debug("Datos recibidos para financiamiento:", { nombre, numero, dni, placa, montoTotal });
+    
+    const fechaInicio = formatDateDDMMYYYY(getCurrentDateGMTMinus5());
+    const cuotaInicial = 350;
+    const montoRestante = parseFloat(montoTotal) - cuotaInicial;
+    const cuotaValor = parseFloat((montoRestante / 2).toFixed(2));
+    
+    const dInicio = parseDateDDMMYYYY(fechaInicio);
+    const fechaCuota1 = formatDateDDMMYYYY(new Date(dInicio.getTime() + 30 * 24 * 3600 * 1000));
+    const fechaCuota2 = formatDateDDMMYYYY(new Date(dInicio.getTime() + 60 * 24 * 3600 * 1000));
+    
+    const cuotas = [
+      { monto: cuotaValor, vencimiento: fechaCuota1, pagada: false },
+      { monto: cuotaValor, vencimiento: fechaCuota2, pagada: false }
+    ];
+    const fechaFin = fechaCuota2;
+    
+    const financiamiento = new Financiamiento({
+      nombre,
+      numero,  // Se espera que se envíe sin '+'
+      dni,
+      placa,
+      montoTotal: parseFloat(montoTotal),
+      cuotaInicial,
+      cuotas,
+      fechaInicio,
+      fechaFin
+    });
+    await financiamiento.save();
+    console.log("Financiamiento guardado en 'financiamientos' para el número:", numero);
+    
+    const pdfBuffer = await generarContratoPDF({
+      nombre,
+      numero,
+      dni,
+      placa,
+      montoTotal,
+      cuotaInicial,
+      cuota1: cuotaValor,
+      fechaCuota1,
+      cuota2: cuotaValor,
+      fechaCuota2,
+      fechaInicio,
+      fechaFin
+    });
+    
+    let numberId;
+    try {
+      numberId = await client.getNumberId(numero);
+      console.debug('getNumberId en financiamiento:', numberId);
+    } catch (err) {
+      console.error('Error en getNumberId al enviar contrato:', err);
+    }
+    if (!numberId) {
+      numberId = { _serialized: numero + '@c.us' };
+      console.warn('Usando fallback para número:', numberId._serialized);
+    }
+    const pdfMedia = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), 'ContratoFinanciamiento.pdf');
+    await client.sendMessage(numberId._serialized, pdfMedia, { caption: 'Adjunto: Contrato de Financiamiento y cronograma de pagos' });
+    
+    res.send("Financiamiento registrado y contrato enviado.");
+  } catch (err) {
+    console.error("Error registrando financiamiento:", err);
+    res.status(500).send("Error registrando financiamiento");
+  }
+});
+
+/* --------------------------------------
+   Endpoint para marcar cuota como pagada (solo admin)
+   Formato: POST /financiamiento/marcar con parámetros: número, índice (0 o 1)
+-------------------------------------- */
+app.post('/financiamiento/marcar', async (req, res) => {
+  try {
+    const { numero, indice } = req.body; // número sin '+' y índice de cuota (0 o 1)
+    if (numero === undefined || indice === undefined) {
+      return res.status(400).send("Parámetros incompletos: 'numero' e 'indice' son requeridos.");
+    }
+    const financiamiento = await Financiamiento.findOne({ numero: numero });
+    if (!financiamiento) {
+      return res.status(404).send("No se encontró financiamiento para ese número.");
+    }
+    const cuotaIndex = parseInt(indice, 10);
+    if (isNaN(cuotaIndex) || cuotaIndex < 0 || cuotaIndex >= financiamiento.cuotas.length) {
+      return res.status(400).send("Índice de cuota inválido.");
+    }
+    financiamiento.cuotas[cuotaIndex].pagada = true;
+    await financiamiento.save();
+    // Preparar mensaje de agradecimiento y detalle de cuotas pendientes
+    const cuotasPendientes = financiamiento.cuotas.filter(c => !c.pagada);
+    let mensaje = "¡Gracias por tu pago!\n";
+    if (cuotasPendientes.length > 0) {
+      mensaje += "Quedan las siguientes cuotas pendientes:\n";
+      cuotasPendientes.forEach((c, i) => {
+        mensaje += `Cuota ${i + 1}: S/ ${c.monto}, vence el ${c.vencimiento}\n`;
+      });
+    } else {
+      mensaje += "Has completado todos tus pagos. ¡Felicitaciones!";
+    }
+    let numberId;
+    try {
+      numberId = await client.getNumberId(numero);
+      if (!numberId) numberId = { _serialized: numero + '@c.us' };
+    } catch (err) {
+      numberId = { _serialized: numero + '@c.us' };
+    }
+    await client.sendMessage(numberId._serialized, mensaje);
+    res.send("Cuota marcada como pagada y mensaje enviado al cliente.");
+  } catch (err) {
+    console.error("Error marcando cuota como pagada:", err);
+    res.status(500).send("Error marcando cuota como pagada");
+  }
+});
 
 /* --------------------------------------
    Configuración de WhatsApp Web (LocalAuth)
@@ -434,8 +604,6 @@ function particionarOfertas(ofertas, count) {
 
 /* --------------------------------------
    Nuevo Endpoint: Enviar Mensaje Personalizado (CRM)
-   Permite elegir la lista ("clientes", "compradores" o "especifico"), ingresar un número (si es específico),
-   un mensaje, y opcionalmente una URL de imagen con descripción.
 -------------------------------------- */
 app.get('/crm/send-custom', (req, res) => {
   res.send(`
@@ -527,7 +695,7 @@ app.post('/crm/send-custom', async (req, res) => {
 });
 
 /* --------------------------------------
-   Endpoint para envío masivo de ofertas
+   Endpoint para envío masivo de ofertas (CRM)
    Se ajusta el lapso total a 2 horas para evitar flag spam.
 -------------------------------------- */
 app.get('/crm/send-initial-offers', async (req, res) => {
@@ -630,7 +798,7 @@ app.get('/crm', async (req, res) => {
 });
 
 /* --------------------------------------
-   Endpoint para descargar el CSV de transacciones
+   Endpoint para descargar CSV de transacciones
 -------------------------------------- */
 app.get('/crm/export-transactions', (req, res) => {
   if (fs.existsSync(csvFilePath)) {
@@ -656,7 +824,7 @@ app.get('/qr', (req, res) => {
    Recordatorio diario de garantías (08:00 AM)
 -------------------------------------- */
 schedule.scheduleJob('0 8 * * *', async function() {
-  const today = new Date();
+  const today = getCurrentDateGMTMinus5();
   const targetDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
   const targetStr = formatDateDDMMYYYY(targetDate);
   console.debug(`Recordatorio: Buscando garantías que expiran el ${targetStr}`);
@@ -671,9 +839,99 @@ schedule.scheduleJob('0 8 * * *', async function() {
 });
 
 /* --------------------------------------
-   Inicializar WhatsApp
+   Recordatorio de cuotas vencientes
+   Se ejecuta diariamente a las 8:30 AM (GMT-5)
 -------------------------------------- */
-client.initialize();
+schedule.scheduleJob('30 8 * * *', async function() {
+  const today = getCurrentDateGMTMinus5();
+  const todayStr = formatDateDDMMYYYY(today);
+  console.debug(`Recordatorio cuotas: Buscando cuotas vencientes para hoy ${todayStr}`);
+  const financiamientos = await Financiamiento.find({});
+  for (const fin of financiamientos) {
+    for (const [index, cuota] of fin.cuotas.entries()) {
+      if (!cuota.pagada && cuota.vencimiento === todayStr) {
+        const msg = `Recordatorio: Tu cuota ${index + 1} para ${fin.producto} vence hoy (${cuota.vencimiento}). Por favor realiza tu pago.`;
+        let numberId;
+        try {
+          numberId = await client.getNumberId(fin.numero);
+          if (!numberId) numberId = { _serialized: fin.numero + '@c.us' };
+          await client.sendMessage(numberId._serialized, msg);
+          console.log(`Recordatorio enviado a ${fin.numero} para cuota ${index + 1}`);
+        } catch (err) {
+          console.error(`Error enviando recordatorio para ${fin.numero}:`, err);
+        }
+      }
+    }
+  }
+});
+
+/* --------------------------------------
+   Configuración de WhatsApp Web (LocalAuth)
+-------------------------------------- */
+const client = new Client({
+  authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
+  puppeteer: {
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--disable-gpu',
+      '--no-first-run'
+    ]
+  }
+});
+
+/* --------------------------------------
+   Eventos de WhatsApp
+-------------------------------------- */
+client.on('qr', async (qrCode) => {
+  console.debug('QR recibido.');
+  try {
+    await QRCode.toFile('whatsapp-qr.png', qrCode);
+    console.debug('QR generado en "whatsapp-qr.png".');
+  } catch (err) {
+    console.error('Error generando QR:', err);
+  }
+});
+
+client.on('ready', () => {
+  console.debug('WhatsApp Bot listo para recibir mensajes!');
+});
+
+client.on('auth_failure', msg => console.error('Error de autenticación:', msg));
+
+/* --------------------------------------
+   Lógica de Ofertas y otros endpoints (se mantienen sin cambios mayores)
+-------------------------------------- */
+const userOfferState = {};
+
+function cargarOfertas() {
+  try {
+    const data = fs.readFileSync(path.join(__dirname, 'offers.json'), 'utf8');
+    console.debug('Ofertas cargadas:', data);
+    return JSON.parse(data);
+  } catch (err) {
+    console.error('Error cargando ofertas:', err);
+    return [];
+  }
+}
+
+function particionarOfertas(ofertas, count) {
+  const indices = Array.from({ length: ofertas.length }, (_, i) => i);
+  let selectedIndices = [];
+  while (selectedIndices.length < count && indices.length > 0) {
+    const randomIndex = Math.floor(Math.random() * indices.length);
+    selectedIndices.push(indices[randomIndex]);
+    indices.splice(randomIndex, 1);
+  }
+  const firstBatch = selectedIndices.map(i => ofertas[i]);
+  const remainingBatch = ofertas.filter((_, i) => !selectedIndices.includes(i));
+  return { firstBatch, remainingBatch };
+}
+
+// Aquí se mantienen los endpoints del CRM, envíos personalizados, etc.
 
 app.listen(PORT, () => {
   console.debug(`Servidor corriendo en el puerto ${PORT}`);
