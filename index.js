@@ -17,9 +17,8 @@ const PORT = process.env.PORT || 3000;
 // Habilitar el body parser para formularios
 app.use(express.urlencoded({ extended: true }));
 
-// Número de admin (almacenado sin el símbolo "+")
+// Configuración de números (almacenados sin el símbolo "+")
 const adminNumber = "51931367147";
-// Número del bot (para evitar envíos a sí mismo)
 const botNumber = "51999999999"; // Ajusta según corresponda
 
 /* --------------------------------------
@@ -354,7 +353,7 @@ async function agregarGarantia(texto, client) {
         console.warn('getNumberId devolvió null; usando fallback:', phone + '@c.us');
         numberId = { _serialized: phone + '@c.us' };
       }
-      const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr}\nFecha de expiración: ${fechaExpiracion}\nEscribe "garantia" para ver tus garantías vigentes.`;
+      const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr}\nFecha de expiración: ${fechaExpiracion}\nEscribe "garantía" para ver tus garantías vigentes.`;
       console.debug('Enviando mensaje de confirmación a:', numberId._serialized);
       try {
         await client.sendMessage(numberId._serialized, msg);
@@ -615,7 +614,7 @@ function particionarOfertas(ofertas, count) {
 }
 
 /* --------------------------------------
-   Nuevo Endpoint: Enviar Mensaje Personalizado (CRM)
+   Endpoint: Enviar Mensaje Personalizado (CRM)
 -------------------------------------- */
 app.get('/crm/send-custom', (req, res) => {
   res.send(`
@@ -707,8 +706,8 @@ app.post('/crm/send-custom', async (req, res) => {
 });
 
 /* --------------------------------------
-   Endpoint para envío masivo de ofertas (CRM)
-   Se ajusta el lapso total a 2 horas para evitar flag spam.
+   Endpoint: Envío masivo de ofertas (CRM)
+   Lapso total de 2 horas para evitar flag spam.
 -------------------------------------- */
 app.get('/crm/send-initial-offers', async (req, res) => {
   try {
@@ -761,7 +760,7 @@ app.get('/crm/send-initial-offers', async (req, res) => {
 });
 
 /* --------------------------------------
-   Dashboard CRM simple (incluye enlace al envío personalizado)
+   Dashboard CRM simple
 -------------------------------------- */
 app.get('/crm', async (req, res) => {
   try {
@@ -878,7 +877,7 @@ schedule.scheduleJob('30 8 * * *', async function() {
 
 /* --------------------------------------
    Configuración de WhatsApp Web (LocalAuth)
-   Se declara SÓLO UNA VEZ para toda la aplicación
+   SE DECLARA SÓLO UNA VEZ para toda la aplicación
 -------------------------------------- */
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
