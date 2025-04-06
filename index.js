@@ -14,12 +14,12 @@ const PDFDocument = require('pdfkit');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Habilitar body parser para formularios (application/x-www-form-urlencoded)
+// Habilitar body parser para formularios
 app.use(express.urlencoded({ extended: true }));
 
-// Número de admin (almacenado sin '+')
+// Número de admin (almacenado sin el símbolo "+")
 const adminNumber = "51931367147";
-// Número del bot (para evitar enviar mensajes a sí mismo)
+// Número del bot (para evitar envíos a sí mismo)
 const botNumber = "51999999999"; // Ajusta según corresponda
 
 /* --------------------------------------
@@ -30,7 +30,7 @@ function sleep(ms) {
 }
 
 function getCurrentDateGMTMinus5() {
-  // Usa la zona horaria de Lima (GMT-5)
+  // Zona horaria de Lima (GMT-5)
   return new Date(new Date().toLocaleString("en-US", { timeZone: "America/Lima" }));
 }
 
@@ -293,7 +293,7 @@ async function agregarGarantia(texto, client) {
   if (tokens.length < 2) {
     throw new Error('Formato incorrecto. Ejemplo: agregar radio 998877665 [placa] [01/01/2025] [shh]');
   }
-  // Si no se proporciona fecha, se usa la fecha actual en GMT-5
+  // Si no se proporciona fecha, usar la fecha actual en GMT-5
   let fechaStr = formatDateDDMMYYYY(getCurrentDateGMTMinus5());
   let plate = null;
   const dateRegex = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/;
@@ -428,9 +428,9 @@ async function generarContratoPDF(data) {
 }
 
 /* --------------------------------------
-   Endpoints para financiamiento (formulario web)
+   Endpoints para financiamiento
 -------------------------------------- */
-// Formulario para crear financiamiento
+// Formulario para crear financiamiento (desde navegador)
 app.get('/financiamiento/crear', (req, res) => {
   res.send(`
     <html>
@@ -450,6 +450,11 @@ app.get('/financiamiento/crear', (req, res) => {
           <input type="text" name="placa" required /><br><br>
           <label for="montoTotal">Monto Total a Financiar:</label><br>
           <input type="number" name="montoTotal" step="0.01" required /><br><br>
+          <!-- Opcional: cuota inicial y número de cuotas -->
+          <label for="cuotaInicial">Cuota Inicial (opcional, default 350):</label><br>
+          <input type="number" name="cuotaInicial" step="0.01" /><br><br>
+          <label for="numCuotas">Número de Cuotas (opcional, default 2):</label><br>
+          <input type="number" name="numCuotas" min="1" /><br><br>
           <button type="submit">Crear Financiamiento</button>
         </form>
       </body>
@@ -460,31 +465,35 @@ app.get('/financiamiento/crear', (req, res) => {
 // Procesar financiamiento y enviar contrato PDF
 app.post('/financiamiento/crear', async (req, res) => {
   try {
-    const { nombre, numero, dni, placa, montoTotal } = req.body;
-    console.debug("Datos recibidos para financiamiento:", { nombre, numero, dni, placa, montoTotal });
+    // Se esperan: nombre, número, dni, placa, montoTotal y opcional cuotaInicial y numCuotas
+    const { nombre, numero, dni, placa, montoTotal, cuotaInicial, numCuotas } = req.body;
+    console.debug("Datos recibidos para financiamiento:", { nombre, numero, dni, placa, montoTotal, cuotaInicial, numCuotas });
     
     const fechaInicio = formatDateDDMMYYYY(getCurrentDateGMTMinus5());
-    const cuotaInicial = 350;
-    const montoRestante = parseFloat(montoTotal) - cuotaInicial;
-    const cuotaValor = parseFloat((montoRestante / 2).toFixed(2));
+    const ci = cuotaInicial ? parseFloat(cuotaInicial) : 350;
+    const nCuotas = numCuotas ? parseInt(numCuotas, 10) : 2;
+    const montoTotalNum = parseFloat(montoTotal);
+    const montoRestante = montoTotalNum - ci;
+    const cuotaValor = parseFloat((montoRestante / nCuotas).toFixed(2));
     
     const dInicio = parseDateDDMMYYYY(fechaInicio);
-    const fechaCuota1 = formatDateDDMMYYYY(new Date(dInicio.getTime() + 30 * 24 * 3600 * 1000));
-    const fechaCuota2 = formatDateDDMMYYYY(new Date(dInicio.getTime() + 60 * 24 * 3600 * 1000));
+    // Calculamos vencimientos: cada cuota 30 días después
+    let fechasCuotas = [];
+    for (let i = 1; i <= nCuotas; i++) {
+      const fechaCuota = formatDateDDMMYYYY(new Date(dInicio.getTime() + 30 * i * 24 * 3600 * 1000));
+      fechasCuotas.push(fechaCuota);
+    }
+    const fechaFin = fechasCuotas[fechasCuotas.length - 1];
     
-    const cuotas = [
-      { monto: cuotaValor, vencimiento: fechaCuota1, pagada: false },
-      { monto: cuotaValor, vencimiento: fechaCuota2, pagada: false }
-    ];
-    const fechaFin = fechaCuota2;
+    const cuotas = fechasCuotas.map(fecha => ({ monto: cuotaValor, vencimiento: fecha, pagada: false }));
     
     const financiamiento = new Financiamiento({
       nombre,
       numero,  // Se espera que se envíe sin '+'
       dni,
       placa,
-      montoTotal: parseFloat(montoTotal),
-      cuotaInicial,
+      montoTotal: montoTotalNum,
+      cuotaInicial: ci,
       cuotas,
       fechaInicio,
       fechaFin
@@ -497,12 +506,12 @@ app.post('/financiamiento/crear', async (req, res) => {
       numero,
       dni,
       placa,
-      montoTotal,
-      cuotaInicial,
+      montoTotal: montoTotalNum,
+      cuotaInicial: ci,
       cuota1: cuotaValor,
-      fechaCuota1,
-      cuota2: cuotaValor,
-      fechaCuota2,
+      fechaCuota1: fechasCuotas[0],
+      cuota2: nCuotas >= 2 ? cuotaValor : '',
+      fechaCuota2: nCuotas >= 2 ? fechasCuotas[1] : '',
       fechaInicio,
       fechaFin
     });
@@ -519,7 +528,13 @@ app.post('/financiamiento/crear', async (req, res) => {
       console.warn('Usando fallback para número:', numberId._serialized);
     }
     const pdfMedia = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), 'ContratoFinanciamiento.pdf');
-    await client.sendMessage(numberId._serialized, pdfMedia, { caption: 'Adjunto: Contrato de Financiamiento y cronograma de pagos' });
+    try {
+      await client.sendMessage(numberId._serialized, pdfMedia, { caption: 'Adjunto: Contrato de Financiamiento y cronograma de pagos' });
+      console.log("Contrato enviado a:", numberId._serialized);
+    } catch (e) {
+      console.error('Error enviando contrato:', e);
+      throw e;
+    }
     
     res.send("Financiamiento registrado y contrato enviado.");
   } catch (err) {
@@ -528,32 +543,71 @@ app.post('/financiamiento/crear', async (req, res) => {
   }
 });
 
-// Formulario para marcar cuota como pagada
+// Formulario para marcar cuota como pagada y consultar cuotas (búsqueda por número o placa)
 app.get('/financiamiento/marcar', (req, res) => {
   res.send(`
     <html>
       <head>
-        <title>Marcar Cuota Pagada</title>
+        <title>Marcar Cuota Pagada / Consultar Financiamiento</title>
       </head>
       <body>
-        <h1>Marcar Cuota como Pagada</h1>
-        <form method="POST" action="/financiamiento/marcar">
-          <label for="numero">Número (sin '+'):</label><br>
-          <input type="text" name="numero" required /><br><br>
-          <label for="indice">Índice de Cuota (0 o 1):</label><br>
-          <input type="number" name="indice" min="0" max="1" required /><br><br>
-          <button type="submit">Marcar como Pagada</button>
+        <h1>Buscar Financiamiento</h1>
+        <form method="GET" action="/financiamiento/buscar">
+          <label for="buscar">Buscar por (Número o Placa):</label><br>
+          <input type="text" name="buscar" required /><br><br>
+          <button type="submit">Buscar</button>
         </form>
       </body>
     </html>
   `);
 });
 
+// Endpoint para buscar financiamiento por número o placa y mostrar cuotas
+app.get('/financiamiento/buscar', async (req, res) => {
+  try {
+    const { buscar } = req.query;
+    if (!buscar) return res.send("Debes ingresar un dato para buscar.");
+    // Buscar por número o por placa (case insensitive)
+    const financiamientos = await Financiamiento.find({
+      $or: [
+        { numero: new RegExp(`^${buscar}`, "i") },
+        { placa: new RegExp(`^${buscar}`, "i") }
+      ]
+    });
+    if (!financiamientos || financiamientos.length === 0) {
+      return res.send("No se encontró financiamiento para el criterio dado.");
+    }
+    let html = `<html><head><title>Resultados de Búsqueda</title></head><body>`;
+    financiamientos.forEach(fin => {
+      html += `<h2>Financiamiento para ${fin.nombre} (Número: ${fin.numero}, Placa: ${fin.placa})</h2>`;
+      html += `<p>Monto Total: ${fin.montoTotal} soles | Cuota Inicial: ${fin.cuotaInicial} soles</p>`;
+      html += `<p>Fecha de inicio: ${fin.fechaInicio} | Fecha de finalización: ${fin.fechaFin}</p>`;
+      html += `<h3>Cuotas:</h3>`;
+      html += `<ul>`;
+      fin.cuotas.forEach((c, i) => {
+        html += `<li>Cuota ${i+1}: S/ ${c.monto} - Vence: ${c.vencimiento} - ${c.pagada ? 'Pagada' : 'Pendiente'}</li>`;
+      });
+      html += `</ul>`;
+      html += `<form method="POST" action="/financiamiento/marcar">
+                 <input type="hidden" name="numero" value="${fin.numero}" />
+                 <label for="indice">Índice de cuota a marcar (0 para la primera, etc):</label>
+                 <input type="number" name="indice" min="0" required />
+                 <button type="submit">Marcar como Pagada</button>
+               </form>`;
+    });
+    html += `</body></html>`;
+    res.send(html);
+  } catch (err) {
+    console.error("Error buscando financiamiento:", err);
+    res.status(500).send("Error buscando financiamiento");
+  }
+});
+
 // Procesar marcar cuota como pagada
 app.post('/financiamiento/marcar', async (req, res) => {
   try {
-    const { numero, indice } = req.body; // número sin '+' y cuota (0 o 1)
-    if (numero === undefined || indice === undefined) {
+    const { numero, indice } = req.body;
+    if (!numero || indice === undefined) {
       return res.status(400).send("Parámetros incompletos: 'numero' e 'indice' son requeridos.");
     }
     const financiamiento = await Financiamiento.findOne({ numero: numero });
@@ -569,9 +623,9 @@ app.post('/financiamiento/marcar', async (req, res) => {
     const cuotasPendientes = financiamiento.cuotas.filter(c => !c.pagada);
     let mensaje = "¡Gracias por tu pago!\n";
     if (cuotasPendientes.length > 0) {
-      mensaje += "Quedan las siguientes cuotas pendientes:\n";
+      mensaje += "Cuotas pendientes:\n";
       cuotasPendientes.forEach((c, i) => {
-        mensaje += `Cuota ${i + 1}: S/ ${c.monto}, vence el ${c.vencimiento}\n`;
+        mensaje += `Cuota ${i+1}: S/ ${c.monto}, vence el ${c.vencimiento}\n`;
       });
     } else {
       mensaje += "Has completado todos tus pagos. ¡Felicitaciones!";
@@ -592,7 +646,7 @@ app.post('/financiamiento/marcar', async (req, res) => {
 });
 
 /* --------------------------------------
-   Endpoints del CRM
+   Endpoints del CRM (envío de mensajes)
 -------------------------------------- */
 app.get('/crm/send-custom', (req, res) => {
   res.send(`
@@ -733,6 +787,9 @@ app.get('/crm/send-initial-offers', async (req, res) => {
   }
 });
 
+/* --------------------------------------
+   Dashboard CRM simple
+-------------------------------------- */
 app.get('/crm', async (req, res) => {
   try {
     const totalClientes = await Cliente.countDocuments({});
@@ -779,6 +836,9 @@ app.get('/crm', async (req, res) => {
   }
 });
 
+/* --------------------------------------
+   Endpoint para descargar CSV de transacciones
+-------------------------------------- */
 app.get('/crm/export-transactions', (req, res) => {
   if (fs.existsSync(csvFilePath)) {
     res.download(csvFilePath, 'transacciones.csv');
@@ -787,6 +847,9 @@ app.get('/crm/export-transactions', (req, res) => {
   }
 });
 
+/* --------------------------------------
+   Endpoint para visualizar el QR
+-------------------------------------- */
 app.get('/qr', (req, res) => {
   const qrPath = path.join(__dirname, 'whatsapp-qr.png');
   if (fs.existsSync(qrPath)) {
