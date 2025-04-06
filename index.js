@@ -30,7 +30,7 @@ function sleep(ms) {
 }
 
 function getCurrentDateGMTMinus5() {
-  // Obtiene la fecha actual en la zona horaria de Lima (GMT-5)
+  // Usa la zona horaria de Lima (GMT-5)
   return new Date(new Date().toLocaleString("en-US", { timeZone: "America/Lima" }));
 }
 
@@ -180,7 +180,7 @@ async function registrarInteraccion(numero, tipo, mensaje, ofertaReferencia = nu
   console.log(`Interacción registrada para ${numero}: ${tipo}`);
 }
 
-// Modelo Comprador (Garantías)
+// Modelo Comprador (para garantías)
 const compradorSchema = new mongoose.Schema({
   numero: { type: String, required: true },
   producto: { type: String, required: true },
@@ -283,8 +283,7 @@ async function agregarGarantia(texto, client) {
   console.debug('Comando agregar recibido:', texto);
   const tokens = texto.trim().split(' ');
   console.debug('Tokens parseados:', tokens);
-  // Eliminar el primer token ("agregar")
-  tokens.shift();
+  tokens.shift(); // Eliminar "agregar"
   let silent = false;
   if (tokens[tokens.length - 1] && tokens[tokens.length - 1].toLowerCase() === 'shh') {
     silent = true;
@@ -355,7 +354,7 @@ async function agregarGarantia(texto, client) {
         console.warn('getNumberId devolvió null; usando fallback:', phone + '@c.us');
         numberId = { _serialized: phone + '@c.us' };
       }
-      const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr}\nFecha de expiración: ${fechaExpiracion}\nEscribe "garantía" para ver tus garantías vigentes.`;
+      const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr}\nFecha de expiración: ${fechaExpiracion}\nEscribe "garantia" para ver tus garantías vigentes.`;
       console.debug('Enviando mensaje de confirmación a:', numberId._serialized);
       try {
         await client.sendMessage(numberId._serialized, msg);
@@ -550,7 +549,7 @@ app.post('/financiamiento/marcar', async (req, res) => {
 
 /* --------------------------------------
    Configuración de WhatsApp Web (LocalAuth)
-   Se declara una sola vez para toda la aplicación
+   Se declara SÓLO UNA VEZ para toda la aplicación
 -------------------------------------- */
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
