@@ -63,7 +63,6 @@ function daysRemaining(expirationDateStr) {
   }
 }
 
-// Normalizar cadenas para que "garantía" y "garantia" se traten igual
 function removeAccents(str) {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
@@ -156,6 +155,7 @@ mongoose.connect('mongodb+srv://jordyvigo:Gunbound2024@cardroid.crwia.mongodb.ne
 /* --------------------------------------
    Modelos
 -------------------------------------- */
+// Modelo Cliente
 const clienteSchema = new mongoose.Schema({
   numero: { type: String, required: true, unique: true },
   createdAt: { type: Date, default: Date.now },
@@ -163,6 +163,7 @@ const clienteSchema = new mongoose.Schema({
 });
 const Cliente = mongoose.model('Cliente', clienteSchema, 'clientes');
 
+// Modelo Interacción
 const interaccionSchema = new mongoose.Schema({
   numero: { type: String, required: true },
   tipo: { type: String },
@@ -179,7 +180,17 @@ async function registrarInteraccion(numero, tipo, mensaje, ofertaReferencia = nu
   console.log(`Interacción registrada para ${numero}: ${tipo}`);
 }
 
-// Modelo Financiamiento (con campo "nombre")
+// Modelo Comprador (Garantías)
+const compradorSchema = new mongoose.Schema({
+  numero: { type: String, required: true },
+  producto: { type: String, required: true },
+  placa: { type: String },
+  fechaInicio: { type: String, required: true },
+  fechaExpiracion: { type: String, required: true }
+});
+const Comprador = mongoose.model('Comprador', compradorSchema, 'compradores');
+
+// Modelo Financiamiento
 const financiamientoSchema = new mongoose.Schema({
   nombre: { type: String, required: true },
   numero: { type: String, required: true },
@@ -189,7 +200,7 @@ const financiamientoSchema = new mongoose.Schema({
   cuotaInicial: { type: Number, default: 350 },
   cuotas: [{
     monto: { type: Number, required: true },
-    vencimiento: { type: String, required: true }, // DD/MM/YYYY
+    vencimiento: { type: String, required: true },
     pagada: { type: Boolean, default: false }
   }],
   fechaInicio: { type: String, required: true },
@@ -197,6 +208,7 @@ const financiamientoSchema = new mongoose.Schema({
 });
 const Financiamiento = mongoose.model('Financiamiento', financiamientoSchema, 'financiamientos');
 
+// Modelo Offer
 const offerSchema = new mongoose.Schema({
   numero: { type: String, required: true, unique: true }
 });
@@ -271,8 +283,7 @@ async function agregarGarantia(texto, client) {
   console.debug('Comando agregar recibido:', texto);
   const tokens = texto.trim().split(' ');
   console.debug('Tokens parseados:', tokens);
-  // Eliminar el primer token ("agregar")
-  tokens.shift();
+  tokens.shift(); // Eliminar "agregar"
   let silent = false;
   if (tokens[tokens.length - 1] && tokens[tokens.length - 1].toLowerCase() === 'shh') {
     silent = true;
@@ -604,6 +615,8 @@ function particionarOfertas(ofertas, count) {
 
 /* --------------------------------------
    Nuevo Endpoint: Enviar Mensaje Personalizado (CRM)
+   Permite elegir la lista ("clientes", "compradores" o "especifico"), ingresar un número (si es específico),
+   un mensaje, y opcionalmente una URL de imagen con descripción.
 -------------------------------------- */
 app.get('/crm/send-custom', (req, res) => {
   res.send(`
@@ -821,7 +834,7 @@ app.get('/qr', (req, res) => {
 });
 
 /* --------------------------------------
-   Recordatorio diario de garantías (08:00 AM)
+   Recordatorio diario de garantías (08:00 AM GMT-5)
 -------------------------------------- */
 schedule.scheduleJob('0 8 * * *', async function() {
   const today = getCurrentDateGMTMinus5();
@@ -839,8 +852,7 @@ schedule.scheduleJob('0 8 * * *', async function() {
 });
 
 /* --------------------------------------
-   Recordatorio de cuotas vencientes
-   Se ejecuta diariamente a las 8:30 AM (GMT-5)
+   Recordatorio de cuotas vencientes (08:30 AM GMT-5)
 -------------------------------------- */
 schedule.scheduleJob('30 8 * * *', async function() {
   const today = getCurrentDateGMTMinus5();
@@ -867,6 +879,7 @@ schedule.scheduleJob('30 8 * * *', async function() {
 
 /* --------------------------------------
    Configuración de WhatsApp Web (LocalAuth)
+   Se declara una sola vez, para usarlo en todas las funciones
 -------------------------------------- */
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
@@ -903,7 +916,7 @@ client.on('ready', () => {
 client.on('auth_failure', msg => console.error('Error de autenticación:', msg));
 
 /* --------------------------------------
-   Lógica de Ofertas y otros endpoints (se mantienen sin cambios mayores)
+   Lógica de Ofertas
 -------------------------------------- */
 const userOfferState = {};
 
@@ -931,8 +944,9 @@ function particionarOfertas(ofertas, count) {
   return { firstBatch, remainingBatch };
 }
 
-// Aquí se mantienen los endpoints del CRM, envíos personalizados, etc.
-
+/* --------------------------------------
+   Inicia el servidor Express
+-------------------------------------- */
 app.listen(PORT, () => {
   console.debug(`Servidor corriendo en el puerto ${PORT}`);
 });
