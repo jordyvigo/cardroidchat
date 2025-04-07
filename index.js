@@ -787,7 +787,7 @@ schedule.scheduleJob('30 8 * * *', async function() {
   for (const fin of financiamientos) {
     for (const [index, cuota] of fin.cuotas.entries()) {
       if (!cuota.pagada && cuota.vencimiento === todayStr) {
-        const msg = `Recordatorio: Tu cuota ${index + 1} para ${fin.producto} vence hoy (${cuota.vencimiento}). Por favor realiza tu pago.`;
+        const msg = `Recordatorio: Tu cuota ${index + 1} para ${fin.placa} vence hoy (${cuota.vencimiento}). Por favor realiza tu pago.`;
         let numberId;
         try {
           numberId = await client.getNumberId(fin.numero);
