@@ -69,10 +69,23 @@ function removeAccents(str) {
 // ───────────────────────────────────────────────
 // REPORTES Y CSV
 // ───────────────────────────────────────────────
+const csvFilePath = path.join(__dirname, 'transactions.csv');
+const csvWriter = createCsvWriter({
+  path: csvFilePath,
+  header: [
+    { id: 'date', title: 'Fecha' },
+    { id: 'type', title: 'Tipo' },
+    { id: 'description', title: 'Descripción' },
+    { id: 'amount', title: 'Monto' },
+    { id: 'currency', title: 'Moneda' }
+  ],
+  append: true
+});
+
 function getReport(reportType, reportDate = getCurrentDateGMTMinus5()) {
   return new Promise((resolve, reject) => {
     const results = [];
-    fs.createReadStream(path.join(__dirname, 'transactions.csv'))
+    fs.createReadStream(csvFilePath)
       .pipe(csvParser({ headers: ['Fecha', 'Tipo', 'Producto', 'Monto', 'Moneda'] }))
       .on('data', data => results.push(data))
       .on('end', () => {
@@ -118,18 +131,40 @@ function getReport(reportType, reportDate = getCurrentDateGMTMinus5()) {
   });
 }
 
-const csvFilePath = path.join(__dirname, 'transactions.csv');
-const csvWriter = createCsvWriter({
-  path: csvFilePath,
-  header: [
-    { id: 'date', title: 'Fecha' },
-    { id: 'type', title: 'Tipo' },
-    { id: 'description', title: 'Descripción' },
-    { id: 'amount', title: 'Monto' },
-    { id: 'currency', title: 'Moneda' }
-  ],
-  append: true
-});
+async function registrarTransaccionCSV(texto) {
+  console.debug('Registrando transacción:', texto);
+  const parts = texto.trim().split(' ');
+  console.debug('Parts:', parts);
+  const type = parts[0].toLowerCase();
+  let currency = 'soles';
+  let amount;
+  let description;
+  if (parts[parts.length - 1].toLowerCase() === 'soles') {
+    amount = parseFloat(parts[parts.length - 2]);
+    description = parts.slice(1, parts.length - 2).join(' ');
+  } else {
+    amount = parseFloat(parts[parts.length - 1]);
+    description = parts.slice(1, parts.length - 1).join(' ');
+  }
+  console.debug('Parsed transaction:', { type, amount, description });
+  if (isNaN(amount)) {
+    console.error('Error: monto no válido.');
+    return;
+  }
+  const record = {
+    date: formatDateDDMMYYYY(new Date()),
+    type,
+    description,
+    amount,
+    currency
+  };
+  try {
+    await csvWriter.writeRecords([record]);
+    console.log(`Transacción registrada en CSV: ${type} - ${description} - ${amount} ${currency}`);
+  } catch (err) {
+    console.error('Error escribiendo CSV:', err);
+  }
+}
 
 // ───────────────────────────────────────────────
 // CONEXIÓN A MONGODB
@@ -144,7 +179,7 @@ mongoose.connect('mongodb+srv://jordyvigo:Gunbound2024@cardroid.crwia.mongodb.ne
 // ───────────────────────────────────────────────
 // MODELOS
 // ───────────────────────────────────────────────
-// Cliente
+// Modelo Cliente
 const clienteSchema = new mongoose.Schema({
   numero: { type: String, required: true, unique: true },
   createdAt: { type: Date, default: Date.now },
@@ -152,7 +187,7 @@ const clienteSchema = new mongoose.Schema({
 });
 const Cliente = mongoose.model('Cliente', clienteSchema, 'clientes');
 
-// Interacción
+// Modelo Interacción
 const interaccionSchema = new mongoose.Schema({
   numero: { type: String, required: true },
   tipo: { type: String },
@@ -169,7 +204,7 @@ async function registrarInteraccion(numero, tipo, mensaje, ofertaReferencia = nu
   console.log(`Interacción registrada para ${numero}: ${tipo}`);
 }
 
-// Comprador (Garantías)
+// Modelo Comprador (para garantías)
 const compradorSchema = new mongoose.Schema({
   numero: { type: String, required: true },
   producto: { type: String, required: true },
@@ -179,7 +214,7 @@ const compradorSchema = new mongoose.Schema({
 });
 const Comprador = mongoose.model('Comprador', compradorSchema, 'compradores');
 
-// Financiamiento
+// Modelo Financiamiento
 const financiamientoSchema = new mongoose.Schema({
   nombre: { type: String, required: true },
   numero: { type: String, required: true },
@@ -197,14 +232,14 @@ const financiamientoSchema = new mongoose.Schema({
 });
 const Financiamiento = mongoose.model('Financiamiento', financiamientoSchema, 'financiamientos');
 
-// Offer
+// Modelo Offer
 const offerSchema = new mongoose.Schema({
   numero: { type: String, required: true, unique: true }
 });
 const Offer = mongoose.model('Offer', offerSchema, 'offers');
 
 // ───────────────────────────────────────────────
-// FUNCIÓN PARA GENERAR CONTRATO PDF
+// FUNCIÓN PARA GENERAR CONTRATO PDF CON CRONOGRAMA DE PAGOS
 // ───────────────────────────────────────────────
 async function generarContratoPDF(data) {
   return new Promise((resolve, reject) => {
@@ -347,7 +382,7 @@ app.post('/financiamiento/crear', async (req, res) => {
     
     const financiamiento = new Financiamiento({
       nombre,
-      numero,
+      numero, // Se espera sin '+'
       dni,
       placa,
       montoTotal: montoTotalNum,
@@ -398,8 +433,8 @@ app.post('/financiamiento/crear', async (req, res) => {
   }
 });
 
-// Financiamiento: Buscar y marcar cuotas (formulario de búsqueda)
-app.get('/financiamiento/buscar', async (req, res) => {
+// Financiamiento: Buscar y marcar cuotas
+app.get('/financiamiento/buscar', (req, res) => {
   res.send(`
   <!DOCTYPE html>
   <html lang="es">
@@ -678,7 +713,7 @@ app.post('/crm/send-custom', async (req, res) => {
 });
 
 // ───────────────────────────────────────────────
-// ENDPOINT PARA EXPORTAR CSV
+// ENDPOINT PARA EXPORTAR CSV DE TRANSACCIONES
 // ───────────────────────────────────────────────
 app.get('/crm/export-transactions', (req, res) => {
   if (fs.existsSync(csvFilePath)) {
@@ -787,7 +822,7 @@ schedule.scheduleJob('30 8 * * *', async function() {
   for (const fin of financiamientos) {
     for (const [index, cuota] of fin.cuotas.entries()) {
       if (!cuota.pagada && cuota.vencimiento === todayStr) {
-        const msg = `Recordatorio: Tu cuota ${index + 1} para ${fin.placa} vence hoy (${cuota.vencimiento}). Por favor realiza tu pago.`;
+        const msg = `Recordatorio: Tu cuota ${index + 1} para ${fin.producto} vence hoy (${cuota.vencimiento}). Por favor realiza tu pago.`;
         let numberId;
         try {
           numberId = await client.getNumberId(fin.numero);
@@ -803,94 +838,75 @@ schedule.scheduleJob('30 8 * * *', async function() {
 });
 
 // ───────────────────────────────────────────────
-// ENDPOINT PARA REINICIAR LA SESIÓN DE WHATSAPP
+// CONFIGURACIÓN DE WHATSAPP WEB (LocalAuth)
 // ───────────────────────────────────────────────
-// Este endpoint destruye la sesión actual y fuerza a que se genere un nuevo QR
-app.get('/reset-session', async (req, res) => {
+// La sesión se guarda en .wwebjs_auth/cardroid-bot; para forzar un nuevo escaneo, elimina esa carpeta o usa el endpoint de reinicio.
+let client; // Declaración global para evitar duplicados
+
+function createWhatsAppClient() {
+  client = new Client({
+    authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
+    puppeteer: {
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--disable-gpu',
+        '--no-first-run'
+      ]
+    }
+  });
+
+  client.on('qr', async (qrCode) => {
+    console.debug('QR recibido.');
+    try {
+      await QRCode.toFile('whatsapp-qr.png', qrCode);
+      console.debug('QR generado en "whatsapp-qr.png".');
+    } catch (err) {
+      console.error('Error generando QR:', err);
+    }
+  });
+
+  client.on('ready', () => {
+    console.debug('WhatsApp Bot listo para recibir mensajes!');
+  });
+
+  client.on('auth_failure', msg => console.error('Error de autenticación:', msg));
+
+  // Aquí se pueden agregar más handlers (por ejemplo, client.on('message', ...)) según se requiera
+
+  client.initialize();
+}
+
+// Inicializamos el cliente al arrancar el servidor
+createWhatsAppClient();
+
+// Endpoint para forzar reinicio de la sesión de WhatsApp
+app.get('/whatsapp/restart', async (req, res) => {
   try {
-    console.log("Reiniciando sesión de WhatsApp...");
-    await client.destroy(); // Destruye la sesión actual
-    // Opcional: elimina la carpeta de sesión (si es necesario)
+    console.log('Forzando reinicio de la sesión de WhatsApp...');
+    if (client) {
+      await client.destroy();
+      console.log('Cliente destruido.');
+    }
     const sessionPath = path.join(__dirname, '.wwebjs_auth', 'cardroid-bot');
     if (fs.existsSync(sessionPath)) {
       fs.rmSync(sessionPath, { recursive: true, force: true });
-      console.log("Carpeta de sesión eliminada:", sessionPath);
+      console.log('Carpeta de sesión eliminada:', sessionPath);
     }
-    client.initialize();
-    res.send("Sesión reiniciada. Escanee el nuevo QR cuando aparezca.");
+    createWhatsAppClient();
+    res.send("Sesión reiniciada. Revisa /qr para escanear el nuevo código, si no se autogenera.");
   } catch (err) {
-    console.error("Error reiniciando sesión:", err);
+    console.error('Error reiniciando la sesión:', err);
     res.status(500).send("Error reiniciando la sesión");
   }
 });
 
 // ───────────────────────────────────────────────
-// CONFIGURACIÓN DE WHATSAPP WEB (LocalAuth)
-// ───────────────────────────────────────────────
-// Se utiliza LocalAuth para guardar la sesión en .wwebjs_auth/cardroid-bot
-const client = new Client({
-  authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
-  puppeteer: {
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--disable-gpu',
-      '--no-first-run'
-    ]
-  }
-});
-
-client.on('qr', async (qrCode) => {
-  console.debug('QR recibido.');
-  try {
-    await QRCode.toFile('whatsapp-qr.png', qrCode);
-    console.debug('QR generado en "whatsapp-qr.png".');
-  } catch (err) {
-    console.error('Error generando QR:', err);
-  }
-});
-
-client.on('ready', () => {
-  console.debug('WhatsApp Bot listo para recibir mensajes!');
-});
-
-client.on('auth_failure', msg => console.error('Error de autenticación:', msg));
-
-// ───────────────────────────────────────────────
-// LÓGICA DE OFERTAS
-// ───────────────────────────────────────────────
-const userOfferState = {};
-
-function cargarOfertas() {
-  try {
-    const data = fs.readFileSync(path.join(__dirname, 'offers.json'), 'utf8');
-    console.debug('Ofertas cargadas:', data);
-    return JSON.parse(data);
-  } catch (err) {
-    console.error('Error cargando ofertas:', err);
-    return [];
-  }
-}
-
-function particionarOfertas(ofertas, count) {
-  const indices = Array.from({ length: ofertas.length }, (_, i) => i);
-  let selectedIndices = [];
-  while (selectedIndices.length < count && indices.length > 0) {
-    const randomIndex = Math.floor(Math.random() * indices.length);
-    selectedIndices.push(indices[randomIndex]);
-    indices.splice(randomIndex, 1);
-  }
-  const firstBatch = selectedIndices.map(i => ofertas[i]);
-  const remainingBatch = ofertas.filter((_, i) => !selectedIndices.includes(i));
-  return { firstBatch, remainingBatch };
-}
-
-// ───────────────────────────────────────────────
 // INICIA EL SERVIDOR EXPRESS
 // ───────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.debug(`Servidor corriendo en el puerto ${PORT}`);
+  console.log(`Servidor corriendo en el puerto ${PORT}`);
 });
