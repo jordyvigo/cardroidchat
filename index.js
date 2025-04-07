@@ -17,13 +17,13 @@ const PORT = process.env.PORT || 3000;
 // Habilitar el body parser para formularios
 app.use(express.urlencoded({ extended: true }));
 
-// Números de admin y bot (almacenados sin el símbolo "+")
+// Números (almacenados sin el símbolo "+")
 const adminNumber = "51931367147";
-const botNumber = "51999999999"; // Ajusta según corresponda
+const botNumber = "51999999999";
 
-/* --------------------------------------
-   Helper Functions
--------------------------------------- */
+// ───────────────────────────────────────────────
+// FUNCIONES HELPERS
+// ───────────────────────────────────────────────
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -66,9 +66,9 @@ function removeAccents(str) {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
-/* --------------------------------------
-   CSV + Report
--------------------------------------- */
+// ───────────────────────────────────────────────
+// REPORTES Y CSV
+// ───────────────────────────────────────────────
 function getReport(reportType, reportDate = getCurrentDateGMTMinus5()) {
   return new Promise((resolve, reject) => {
     const results = [];
@@ -118,17 +118,6 @@ function getReport(reportType, reportDate = getCurrentDateGMTMinus5()) {
   });
 }
 
-/* --------------------------------------
-   Manejo de Errores Global
--------------------------------------- */
-process.on('uncaughtException', err => console.error('Uncaught Exception:', err));
-process.on('unhandledRejection', (reason, promise) =>
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason)
-);
-
-/* --------------------------------------
-   CSV Writer para Transacciones
--------------------------------------- */
 const csvFilePath = path.join(__dirname, 'transactions.csv');
 const csvWriter = createCsvWriter({
   path: csvFilePath,
@@ -142,19 +131,20 @@ const csvWriter = createCsvWriter({
   append: true
 });
 
-/* --------------------------------------
-   Conexión a MongoDB
--------------------------------------- */
+// ───────────────────────────────────────────────
+// CONEXIÓN A MONGODB
+// ───────────────────────────────────────────────
 mongoose.connect('mongodb+srv://jordyvigo:Gunbound2024@cardroid.crwia.mongodb.net/ofertaclientes?retryWrites=true&w=majority&appName=Cardroid', {
   useNewUrlParser: true,
   useUnifiedTopology: true
-}).then(() => console.log('Conectado a MongoDB (ofertaclientes)'))
-  .catch(err => console.error('Error conectando a MongoDB:', err));
+})
+.then(() => console.log('Conectado a MongoDB (ofertaclientes)'))
+.catch(err => console.error('Error conectando a MongoDB:', err));
 
-/* --------------------------------------
-   Modelos
--------------------------------------- */
-// Modelo Cliente
+// ───────────────────────────────────────────────
+// MODELOS
+// ───────────────────────────────────────────────
+// Cliente
 const clienteSchema = new mongoose.Schema({
   numero: { type: String, required: true, unique: true },
   createdAt: { type: Date, default: Date.now },
@@ -162,7 +152,7 @@ const clienteSchema = new mongoose.Schema({
 });
 const Cliente = mongoose.model('Cliente', clienteSchema, 'clientes');
 
-// Modelo Interacción
+// Interacción
 const interaccionSchema = new mongoose.Schema({
   numero: { type: String, required: true },
   tipo: { type: String },
@@ -179,7 +169,7 @@ async function registrarInteraccion(numero, tipo, mensaje, ofertaReferencia = nu
   console.log(`Interacción registrada para ${numero}: ${tipo}`);
 }
 
-// Modelo Comprador (para garantías)
+// Comprador (Garantías)
 const compradorSchema = new mongoose.Schema({
   numero: { type: String, required: true },
   producto: { type: String, required: true },
@@ -189,7 +179,7 @@ const compradorSchema = new mongoose.Schema({
 });
 const Comprador = mongoose.model('Comprador', compradorSchema, 'compradores');
 
-// Modelo Financiamiento
+// Financiamiento
 const financiamientoSchema = new mongoose.Schema({
   nombre: { type: String, required: true },
   numero: { type: String, required: true },
@@ -207,231 +197,43 @@ const financiamientoSchema = new mongoose.Schema({
 });
 const Financiamiento = mongoose.model('Financiamiento', financiamientoSchema, 'financiamientos');
 
-// Modelo Offer
+// Offer
 const offerSchema = new mongoose.Schema({
   numero: { type: String, required: true, unique: true }
 });
 const Offer = mongoose.model('Offer', offerSchema, 'offers');
 
-/* --------------------------------------
-   Registrar Transacción en CSV
--------------------------------------- */
-async function registrarTransaccionCSV(texto) {
-  console.debug('Registrando transacción:', texto);
-  const parts = texto.trim().split(' ');
-  console.debug('Parts:', parts);
-  const type = parts[0].toLowerCase();
-  let currency = 'soles';
-  let amount;
-  let description;
-  if (parts[parts.length - 1].toLowerCase() === 'soles') {
-    amount = parseFloat(parts[parts.length - 2]);
-    description = parts.slice(1, parts.length - 2).join(' ');
-  } else {
-    amount = parseFloat(parts[parts.length - 1]);
-    description = parts.slice(1, parts.length - 1).join(' ');
-  }
-  console.debug('Parsed transaction:', { type, amount, description });
-  if (isNaN(amount)) {
-    console.error('Error: monto no válido.');
-    return;
-  }
-  const record = {
-    date: formatDateDDMMYYYY(new Date()),
-    type,
-    description,
-    amount,
-    currency
-  };
-  try {
-    await csvWriter.writeRecords([record]);
-    console.log(`Transacción registrada en CSV: ${type} - ${description} - ${amount} ${currency}`);
-  } catch (err) {
-    console.error('Error escribiendo CSV:', err);
-  }
-}
-
-/* --------------------------------------
-   Registrar/Actualizar Cliente
-   Al agregar garantía se elimina de "clientes" y se mueve a "compradores"
--------------------------------------- */
-async function registrarNumero(numeroWhatsApp) {
-  const numeroLimpio = numeroWhatsApp.split('@')[0];
-  console.debug('Registrar/actualizar cliente:', numeroLimpio);
-  let cliente = await Cliente.findOneAndUpdate(
-    { numero: numeroLimpio },
-    { $set: { lastInteraction: new Date() } },
-    { new: true }
-  );
-  if (!cliente) {
-    cliente = new Cliente({ numero: numeroLimpio, lastInteraction: new Date() });
-    await cliente.save();
-    console.log(`Número ${numeroLimpio} registrado en "clientes".`);
-  } else {
-    console.log(`Número ${numeroLimpio} actualizado en "clientes".`);
-  }
-}
-
-/* --------------------------------------
-   Agregar Garantía (solo admin)
-   Formato: "agregar <producto> <número> [<placa>] [<fecha>] [shh]"
-   Se asume que los números se almacenan como "51xxxxxxxxx" (sin '+')
-   Al agregar la garantía se elimina el cliente de "clientes" y se agrega a "compradores"
--------------------------------------- */
-async function agregarGarantia(texto, client) {
-  console.debug('Comando agregar recibido:', texto);
-  const tokens = texto.trim().split(' ');
-  console.debug('Tokens parseados:', tokens);
-  tokens.shift(); // Eliminar "agregar"
-  let silent = false;
-  if (tokens[tokens.length - 1] && tokens[tokens.length - 1].toLowerCase() === 'shh') {
-    silent = true;
-    tokens.pop();
-    console.debug('Modo silencioso (shh) activado');
-  }
-  if (tokens.length < 2) {
-    throw new Error('Formato incorrecto. Ejemplo: agregar radio 998877665 [placa] [01/01/2025] [shh]');
-  }
-  // Si no se proporciona fecha, se usa la fecha actual en GMT-5
-  let fechaStr = formatDateDDMMYYYY(getCurrentDateGMTMinus5());
-  let plate = null;
-  const dateRegex = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/;
-  const plateRegex = /^[A-Za-z0-9]{6}$/;
-  if (dateRegex.test(tokens[tokens.length - 1])) {
-    fechaStr = tokens.pop();
-    console.debug('Fecha detectada:', fechaStr);
-  }
-  if (tokens.length >= 2 && plateRegex.test(tokens[tokens.length - 1])) {
-    plate = tokens.pop();
-    console.debug('Placa detectada:', plate);
-  }
-  if (tokens.length < 1) {
-    throw new Error('No se encontró el número de teléfono.');
-  }
-  let phone = tokens.pop();
-  console.debug('Teléfono parseado:', phone);
-  const product = tokens.join(' ');
-  console.debug('Producto parseado:', product);
-  if (!phone.startsWith('51')) {
-    phone = '51' + phone;
-  }
-  console.debug('Número final (sin +):', phone);
-
-  let numberId;
-  try {
-    numberId = await client.getNumberId(phone);
-    console.debug('getNumberId en agregarGarantia:', numberId);
-  } catch (err) {
-    console.error('Error en getNumberId al agregar garantía:', err);
-  }
-
-  const startDate = parseDateDDMMYYYY(fechaStr);
-  const expDate = new Date(startDate.getFullYear() + 1, startDate.getMonth(), startDate.getDate());
-  const fechaExpiracion = formatDateDDMMYYYY(expDate);
-
-  // Guardar en "compradores"
-  const newRecord = new Comprador({
-    numero: phone,
-    producto: product,
-    placa: plate,
-    fechaInicio: fechaStr,
-    fechaExpiracion: fechaExpiracion
-  });
-  await newRecord.save();
-  console.log('Garantía guardada en "compradores"');
-
-  // Mover el cliente: eliminar de "clientes" y "offers"
-  await Cliente.deleteOne({ numero: phone });
-  await Offer.deleteOne({ numero: phone });
-  console.log('Cliente eliminado de "clientes" y "offers"');
-
-  if (!silent) {
-    if (phone === botNumber) {
-      console.debug('No se envía mensaje de confirmación porque el número destino es el del bot.');
-    } else {
-      if (!numberId) {
-        console.warn('getNumberId devolvió null; usando fallback:', phone + '@c.us');
-        numberId = { _serialized: phone + '@c.us' };
-      }
-      const msg = `Se ha agregado tu garantía de un año para "${product}"${plate ? ' (Placa: ' + plate + ')' : ''}.\nFecha de inicio: ${fechaStr}\nFecha de expiración: ${fechaExpiracion}\nEscribe "garantía" para ver tus garantías vigentes.`;
-      console.debug('Enviando mensaje de confirmación a:', numberId._serialized);
-      try {
-        await client.sendMessage(numberId._serialized, msg);
-      } catch (e) {
-        console.error('Error enviando mensaje de confirmación:', e);
-      }
-    }
-  } else {
-    console.debug('Garantía agregada en modo silencioso (shh), no se envía mensaje.');
-  }
-  return `Garantía agregada para ${product} al cliente ${phone}${plate ? ' (Placa: ' + plate + ')' : ''}.`;
-}
-
-/* --------------------------------------
-   Programar Mensaje (solo admin)
-   Formato: "programar <mensaje> <fecha> <número>"
--------------------------------------- */
-async function programarMensaje(texto) {
-  console.debug('Comando programar recibido:', texto);
-  const tokens = texto.trim().split(' ');
-  tokens.shift();
-  if (tokens.length < 3) {
-    throw new Error('Formato incorrecto. Ejemplo: programar cita para instalacion 31/01/25 932426069');
-  }
-  const target = tokens.pop();
-  const dateToken = tokens.pop();
-  const mensajeProgramado = tokens.join(' ');
-  console.debug('Mensaje programado:', mensajeProgramado);
-  console.debug('Fecha detectada:', dateToken);
-  console.debug('Número destino:', target);
-  const scheduledDate = parseDateDDMMYYYY(dateToken);
-  schedule.scheduleJob(scheduledDate, async function() {
-    await client.sendMessage(target + '@c.us', `Recordatorio: ${mensajeProgramado}`);
-  });
-  return `Mensaje programado para ${target} el ${dateToken}: ${mensajeProgramado}`;
-}
-
-/* --------------------------------------
-   Función para generar contrato PDF con cronograma de pagos
-   Según el contrato adjunto
--------------------------------------- */
+// ───────────────────────────────────────────────
+// FUNCIÓN PARA GENERAR CONTRATO PDF
+// ───────────────────────────────────────────────
 async function generarContratoPDF(data) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50 });
     let buffers = [];
     doc.on('data', buffers.push.bind(buffers));
-    doc.on('end', () => {
-      const pdfData = Buffer.concat(buffers);
-      resolve(pdfData);
-    });
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
     doc.on('error', err => reject(err));
 
-    // Encabezado
+    // Redacción del contrato según el formato solicitado
     doc.fontSize(18).text('CONTRATO DE FINANCIAMIENTO DIRECTO CON OPCIÓN A COMPRA', { align: 'center' });
     doc.moveDown();
-
-    // Cuerpo del contrato (formateado según el contrato proporcionado)
-    doc.fontSize(12).text(`Con este documento, CARDROID PERÚ, representado por el Sr. Jordy Bigo Goycochea, con DNI N.° ____________, en adelante "EL VENDEDOR", y el cliente ${data.nombre_cliente}, identificado con DNI N.° ${data.dni_cliente}, con vehículo de placa ${data.placa_vehiculo}, en adelante "EL CLIENTE", acuerdan lo siguiente:`);
+    doc.fontSize(12).text(`Con este documento, CRD IMPORT, representado por el Sr. Jordy Vigo, con DNI N.° ____________, en adelante "EL VENDEDOR", y el cliente ${data.nombre_cliente}, identificado con DNI N.° ${data.dni_cliente}, con vehículo de placa ${data.placa_vehiculo}, en adelante "EL CLIENTE", acuerdan lo siguiente:`);
     doc.moveDown();
-
     doc.text('1. SOBRE EL PRODUCTO');
     doc.text(`EL CLIENTE recibe un equipo multimedia (radio Android) completamente instalado en su vehículo, con opción a compra bajo modalidad de financiamiento directo. El valor total del producto es de S/ ${data.monto_total}.`);
     doc.moveDown();
-
     doc.text('2. FORMA DE PAGO');
-    doc.text(`EL CLIENTE se compromete a pagar según el siguiente cronograma:`);
+    doc.text('EL CLIENTE se compromete a pagar según el siguiente cronograma:');
     doc.list([
       `Inicial: S/ ${data.cuota_inicial} (abonado el ${data.fecha_inicio})`,
       `Cuota 1: S/ ${data.cuota_1} (vence el ${data.fecha_cuota_1})`,
       `Cuota 2: S/ ${data.cuota_2} (vence el ${data.fecha_cuota_2})`
     ]);
     doc.moveDown();
-
     doc.text('La propiedad del equipo pasará a EL CLIENTE una vez que haya pagado el 100% del valor acordado.');
     doc.moveDown();
-
     doc.text('3. SOBRE LA APLICACIÓN DE CONTROL');
-    doc.text(`Para asegurar el cumplimiento del pago, EL CLIENTE acepta la instalación de una aplicación de control que:`);
+    doc.text('Para asegurar el cumplimiento del pago, EL CLIENTE acepta la instalación de una aplicación de control que:');
     doc.list([
       'Funciona en pantalla completa (modo kiosko).',
       'Muestra notificaciones de pago pendiente.',
@@ -439,13 +241,11 @@ async function generarContratoPDF(data) {
       'Solo se desactiva definitivamente tras el pago completo.'
     ]);
     doc.moveDown();
-
     doc.text('4. GARANTÍA');
-    doc.text(`El producto cuenta con garantía por 12 meses, la cual se activa al completarse el pago total. Durante el periodo de financiamiento, cualquier falla será atendida solo si no está relacionada a mal uso, manipulación o alteración del sistema.`);
+    doc.text('El producto cuenta con garantía por 12 meses, la cual se activa al completarse el pago total. Durante el periodo de financiamiento, cualquier falla será atendida solo si no está relacionada a mal uso, manipulación o alteración del sistema.');
     doc.moveDown();
-
     doc.text('5. COMPROMISOS DEL CLIENTE');
-    doc.text(`Al aceptar este contrato, EL CLIENTE se compromete a:`);
+    doc.text('Al aceptar este contrato, EL CLIENTE se compromete a:');
     doc.list([
       'No modificar ni desinstalar la aplicación de control.',
       'No formatear, rootear ni flashear la radio.',
@@ -453,33 +253,27 @@ async function generarContratoPDF(data) {
       'Asumir la responsabilidad por robo, daño o pérdida durante el periodo de pago.'
     ]);
     doc.moveDown();
-
     doc.text('6. EN CASO DE INCUMPLIMIENTO');
-    doc.text(`Si EL CLIENTE incumple con los pagos o manipula el sistema, EL VENDEDOR podrá:`);
+    doc.text('Si EL CLIENTE incumple con los pagos o manipula el sistema, EL VENDEDOR podrá:');
     doc.list([
       'Limitar el uso del equipo hasta regularizar la situación.',
       'Solicitar la devolución del producto sin reembolso de lo ya abonado.',
       'Iniciar acciones legales por los montos pendientes.'
     ]);
     doc.moveDown();
-
     doc.text('7. SOBRE LA INSTALACIÓN');
     doc.text('La instalación del equipo está incluida y se realiza en tienda, previa cita. El CLIENTE debe acudir con su vehículo para la programación del equipo.');
     doc.moveDown();
-
     doc.text('8. JURISDICCIÓN');
     doc.text('Ambas partes acuerdan que, en caso de conflicto, se someterán a los tribunales de la ciudad de Trujillo.');
     doc.moveDown();
-
     doc.text(`Firmado con conformidad el día ${data.fecha_inicio}.`, { align: 'center' });
-    doc.moveDown(2);
-
-    // Firma
+    doc.moveDown();
     doc.text('___________________________', { align: 'left' });
     doc.text('EL VENDEDOR', { align: 'left' });
     doc.text('Jordy Vigo', { align: 'left' });
-    doc.text('CRD Peru', { align: 'left' });
-    doc.moveDown(2);
+    doc.text('CRD IMPORT', { align: 'left' });
+    doc.moveDown();
     doc.text('___________________________', { align: 'left' });
     doc.text('EL CLIENTE', { align: 'left' });
     doc.text(`Nombre: ${data.nombre_cliente}`, { align: 'left' });
@@ -489,11 +283,11 @@ async function generarContratoPDF(data) {
   });
 }
 
-/* --------------------------------------
-   Endpoints de la API y CRM
--------------------------------------- */
+// ───────────────────────────────────────────────
+// ENDPOINTS DE LA API Y CRM
+// ───────────────────────────────────────────────
 
-// Endpoint: Formulario de financiamiento (para usarse desde navegador, responsivo)
+// Financiamiento: Formulario responsivo para crear financiamiento
 app.get('/financiamiento/crear', (req, res) => {
   res.send(`
   <!DOCTYPE html>
@@ -515,11 +309,12 @@ app.get('/financiamiento/crear', (req, res) => {
       <h1>Registrar Financiamiento</h1>
       <form method="POST" action="/financiamiento/crear">
         <input type="text" name="nombre" placeholder="Nombre completo" required>
-        <input type="text" name="numero" placeholder="Número de WhatsApp (sin +)" required>
+        <input type="text" name="numero" placeholder="Número de WhatsApp (sin '+')" required>
         <input type="text" name="dni" placeholder="DNI" required>
         <input type="text" name="placa" placeholder="Placa del vehículo" required>
         <input type="number" name="montoTotal" placeholder="Monto total a financiar" required>
-        <!-- Opcional: Puedes agregar campos para cuota inicial y número de cuotas si lo deseas -->
+        <input type="number" name="cuotaInicial" placeholder="Cuota inicial (opcional)" step="0.01">
+        <input type="number" name="numCuotas" placeholder="Número de cuotas restantes (opcional)" min="1">
         <button type="submit">Registrar Financiamiento</button>
       </form>
     </div>
@@ -528,38 +323,35 @@ app.get('/financiamiento/crear', (req, res) => {
   `);
 });
 
-// Endpoint para registrar financiamiento y enviar contrato PDF
+// Financiamiento: Registro y envío del contrato PDF
 app.post('/financiamiento/crear', async (req, res) => {
   try {
-    // Se esperan: nombre, numero, dni, placa y montoTotal (sin '+')
-    const { nombre, numero, dni, placa, montoTotal } = req.body;
-    console.debug("Datos recibidos para financiamiento:", { nombre, numero, dni, placa, montoTotal });
+    const { nombre, numero, dni, placa, montoTotal, cuotaInicial, numCuotas } = req.body;
+    console.debug("Datos recibidos para financiamiento:", req.body);
     
     const fechaInicio = formatDateDDMMYYYY(getCurrentDateGMTMinus5());
-    const cuotaInicial = req.body.cuotaInicial ? parseFloat(req.body.cuotaInicial) : 350;
+    const cuotaIni = cuotaInicial ? parseFloat(cuotaInicial) : 350;
     const montoTotalNum = parseFloat(montoTotal);
-    const montoRestante = montoTotalNum - cuotaInicial;
-    const numCuotas = req.body.numCuotas ? parseInt(req.body.numCuotas, 10) : 2;
-    const cuotaValor = parseFloat((montoRestante / numCuotas).toFixed(2));
+    const montoRestante = montoTotalNum - cuotaIni;
+    const numCuo = numCuotas ? parseInt(numCuotas, 10) : 2;
+    const cuotaValor = parseFloat((montoRestante / numCuo).toFixed(2));
     
     const dInicio = parseDateDDMMYYYY(fechaInicio);
-    // Calcular fechas de cuotas (30 días entre cada una)
     const fechasCuotas = [];
-    for (let i = 1; i <= numCuotas; i++) {
+    for (let i = 1; i <= numCuo; i++) {
       const fecha = formatDateDDMMYYYY(new Date(dInicio.getTime() + i * 30 * 24 * 3600 * 1000));
       fechasCuotas.push(fecha);
     }
     const cuotas = fechasCuotas.map(fecha => ({ monto: cuotaValor, vencimiento: fecha, pagada: false }));
     const fechaFin = fechasCuotas[fechasCuotas.length - 1];
     
-    // Crear financiamiento
     const financiamiento = new Financiamiento({
       nombre,
-      numero,  // Se espera que se envíe sin '+'
+      numero,
       dni,
       placa,
       montoTotal: montoTotalNum,
-      cuotaInicial,
+      cuotaInicial: cuotaIni,
       cuotas,
       fechaInicio,
       fechaFin
@@ -567,17 +359,16 @@ app.post('/financiamiento/crear', async (req, res) => {
     await financiamiento.save();
     console.log("Financiamiento guardado en 'financiamientos' para el número:", numero);
     
-    // Generar contrato PDF usando el formato dado
     const pdfBuffer = await generarContratoPDF({
       nombre_cliente: nombre,
       dni_cliente: dni,
       placa_vehiculo: placa,
       monto_total: montoTotalNum,
-      cuota_inicial: cuotaInicial,
+      cuota_inicial: cuotaIni,
       cuota_1: cuotaValor,
       fecha_cuota_1: fechasCuotas[0],
-      cuota_2: numCuotas >= 2 ? cuotaValor : 'N/A',
-      fecha_cuota_2: numCuotas >= 2 ? fechasCuotas[1] : 'N/A',
+      cuota_2: numCuo >= 2 ? cuotaValor : 'N/A',
+      fecha_cuota_2: numCuo >= 2 ? fechasCuotas[1] : 'N/A',
       fecha_inicio: fechaInicio,
       fecha_fin: fechaFin
     });
@@ -600,7 +391,6 @@ app.post('/financiamiento/crear', async (req, res) => {
       console.error('Error enviando contrato:', e);
       throw e;
     }
-    
     res.send("Financiamiento registrado y contrato enviado.");
   } catch (err) {
     console.error("Error registrando financiamiento:", err);
@@ -608,10 +398,8 @@ app.post('/financiamiento/crear', async (req, res) => {
   }
 });
 
-// Endpoint para marcar cuota como pagada (solo admin)
-// Ahora se puede buscar por número o por placa
+// Financiamiento: Buscar y marcar cuotas (formulario de búsqueda)
 app.get('/financiamiento/buscar', async (req, res) => {
-  // Formulario para buscar financiamiento
   res.send(`
   <!DOCTYPE html>
   <html lang="es">
@@ -620,8 +408,8 @@ app.get('/financiamiento/buscar', async (req, res) => {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Buscar Financiamiento</title>
     <style>
-      body { font-family: Arial, sans-serif; background: #f7f7f7; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-      .container { background: #fff; padding: 20px; border-radius: 8px; width: 90%; max-width: 500px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+      body { font-family: Arial, sans-serif; background: #f7f7f7; display: flex; justify-content: center; align-items: center; padding: 20px; }
+      .container { background: #fff; padding: 20px; border-radius: 8px; max-width: 600px; margin: auto; }
       h1 { text-align: center; }
       input, button { width: 100%; padding: 10px; margin: 5px 0; border-radius: 4px; border: 1px solid #ccc; }
       button { background-color: #28a745; color: #fff; border: none; }
@@ -652,7 +440,6 @@ app.get('/financiamiento/buscar/result', async (req, res) => {
     if (!financiamientos || financiamientos.length === 0) {
       return res.send("No se encontró financiamiento para el criterio dado.");
     }
-    // Mostrar información de cuotas
     let html = `
     <!DOCTYPE html>
     <html lang="es">
@@ -721,7 +508,7 @@ app.get('/financiamiento/buscar/result', async (req, res) => {
   }
 });
 
-// Endpoint para registrar una transacción (gasto/venta)
+// Transacción: Registrar gasto/venta
 app.post('/transaccion/crear', async (req, res) => {
   try {
     const { texto } = req.body;
@@ -733,10 +520,9 @@ app.post('/transaccion/crear', async (req, res) => {
   }
 });
 
-// --- Otros endpoints (envío de ofertas, mensajes personalizados, dashboard, QR, etc.) ---
-// Se mantienen similares a lo que ya tenías y se han optimizado para mayor claridad y depuración.
-// Aquí incluyo el endpoint de envío masivo de ofertas (CRM)
-
+// ───────────────────────────────────────────────
+// ENDPOINT PARA ENVÍO MASIVO DE OFERTAS (CRM)
+// ───────────────────────────────────────────────
 app.get('/crm/send-initial-offers', async (req, res) => {
   try {
     const clientes = await Cliente.find({});
@@ -744,7 +530,7 @@ app.get('/crm/send-initial-offers', async (req, res) => {
     if (ofertas.length === 0) return res.send('No hay ofertas disponibles.');
     const mensajeIntro = "En esta temporada de campaña escolar, entendemos la importancia de maximizar tus ahorros. Por ello, te ofrecemos descuentos exclusivos para que puedas optimizar y mejorar tu vehículo este mes. ¡Descubre nuestras ofertas especiales!";
     const totalClientes = clientes.length;
-    const totalTime = 2 * 3600 * 1000; // 2 horas
+    const totalTime = 2 * 3600 * 1000; // 2 horas en milisegundos
     const delayBetweenClients = totalClientes > 0 ? totalTime / totalClientes : 0;
     console.log(`Enviando ofertas a ${totalClientes} clientes con un intervalo de ${(delayBetweenClients/1000).toFixed(2)} segundos.`);
     async function enviarOfertasCliente(cliente) {
@@ -787,7 +573,9 @@ app.get('/crm/send-initial-offers', async (req, res) => {
   }
 });
 
-// Endpoint para envío de mensajes personalizados (CRM)
+// ───────────────────────────────────────────────
+// ENDPOINT PARA MENSAJES PERSONALIZADOS (CRM)
+// ───────────────────────────────────────────────
 app.get('/crm/send-custom', (req, res) => {
   res.send(`
   <!DOCTYPE html>
@@ -889,7 +677,9 @@ app.post('/crm/send-custom', async (req, res) => {
   }
 });
 
-// Endpoint para descarga de CSV
+// ───────────────────────────────────────────────
+// ENDPOINT PARA EXPORTAR CSV
+// ───────────────────────────────────────────────
 app.get('/crm/export-transactions', (req, res) => {
   if (fs.existsSync(csvFilePath)) {
     res.download(csvFilePath, 'transacciones.csv');
@@ -898,7 +688,9 @@ app.get('/crm/export-transactions', (req, res) => {
   }
 });
 
-// Endpoint para visualizar QR
+// ───────────────────────────────────────────────
+// ENDPOINT PARA VISUALIZAR EL QR
+// ───────────────────────────────────────────────
 app.get('/qr', (req, res) => {
   const qrPath = path.join(__dirname, 'whatsapp-qr.png');
   if (fs.existsSync(qrPath)) {
@@ -908,7 +700,9 @@ app.get('/qr', (req, res) => {
   }
 });
 
-// Dashboard CRM simple (mejorado para celular)
+// ───────────────────────────────────────────────
+// DASHBOARD CRM RESPONSIVO
+// ───────────────────────────────────────────────
 app.get('/crm', async (req, res) => {
   try {
     const totalClientes = await Cliente.countDocuments({});
@@ -931,9 +725,7 @@ app.get('/crm', async (req, res) => {
         th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
         th { background-color: #f2f2f2; }
         button { padding: 10px 20px; font-size: 16px; margin: 5px; background: #007BFF; color: #fff; border: none; border-radius: 4px; }
-        @media (max-width: 600px) {
-          .stat, table, button { font-size: 14px; }
-        }
+        @media (max-width: 600px) { .stat, table, button { font-size: 14px; } }
       </style>
     </head>
     <body>
@@ -967,9 +759,10 @@ app.get('/crm', async (req, res) => {
   }
 });
 
-/* --------------------------------------
-   Recordatorio diario de garantías (08:00 AM GMT-5)
--------------------------------------- */
+// ───────────────────────────────────────────────
+// RECORDATORIOS
+// ───────────────────────────────────────────────
+// Recordatorio diario de garantías (08:00 AM GMT-5)
 schedule.scheduleJob('0 8 * * *', async function() {
   const today = getCurrentDateGMTMinus5();
   const targetDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
@@ -985,9 +778,7 @@ schedule.scheduleJob('0 8 * * *', async function() {
   });
 });
 
-/* --------------------------------------
-   Recordatorio de cuotas vencientes (08:30 AM GMT-5)
--------------------------------------- */
+// Recordatorio de cuotas vencientes (08:30 AM GMT-5)
 schedule.scheduleJob('30 8 * * *', async function() {
   const today = getCurrentDateGMTMinus5();
   const todayStr = formatDateDDMMYYYY(today);
@@ -1011,10 +802,10 @@ schedule.scheduleJob('30 8 * * *', async function() {
   }
 });
 
-/* --------------------------------------
-   Configuración de WhatsApp Web (LocalAuth)
-   (Se declara SÓLO UNA VEZ para toda la aplicación)
--------------------------------------- */
+// ───────────────────────────────────────────────
+// CONFIGURACIÓN DE WHATSAPP WEB (LocalAuth)
+// ───────────────────────────────────────────────
+// La sesión se guarda en .wwebjs_auth/cardroid-bot; para forzar un nuevo escaneo elimina esa carpeta.
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
   puppeteer: {
@@ -1030,9 +821,6 @@ const client = new Client({
   }
 });
 
-/* --------------------------------------
-   Eventos de WhatsApp
--------------------------------------- */
 client.on('qr', async (qrCode) => {
   console.debug('QR recibido.');
   try {
@@ -1049,9 +837,9 @@ client.on('ready', () => {
 
 client.on('auth_failure', msg => console.error('Error de autenticación:', msg));
 
-/* --------------------------------------
-   Lógica de Ofertas
--------------------------------------- */
+// ───────────────────────────────────────────────
+// LÓGICA DE OFERTAS
+// ───────────────────────────────────────────────
 const userOfferState = {};
 
 function cargarOfertas() {
@@ -1078,9 +866,9 @@ function particionarOfertas(ofertas, count) {
   return { firstBatch, remainingBatch };
 }
 
-/* --------------------------------------
-   Inicia el servidor Express
--------------------------------------- */
+// ───────────────────────────────────────────────
+// INICIA EL SERVIDOR EXPRESS
+// ───────────────────────────────────────────────
 app.listen(PORT, () => {
   console.debug(`Servidor corriendo en el puerto ${PORT}`);
 });
