@@ -922,9 +922,7 @@ const client = new Client({
   }
 });
 
-/* --------------------------------------
-   Eventos de WhatsApp
--------------------------------------- */
+// Eventos de WhatsApp
 client.on('qr', async (qrCode) => {
   console.debug('QR recibido.');
   try {
@@ -941,11 +939,17 @@ client.on('ready', () => {
 
 client.on('auth_failure', msg => console.error('Error de autenticación:', msg));
 
+client.on('disconnected', (reason) => {
+  console.error('WhatsApp Bot se ha desconectado:', reason);
+  // Aquí puedes optar por reiniciar la aplicación o realizar otra acción necesaria
+});
+
+// Inicia el cliente de WhatsApp
+client.initialize();
+
 /* --------------------------------------
    Lógica de Ofertas
 -------------------------------------- */
-const userOfferState = {};
-
 function cargarOfertas() {
   try {
     const data = fs.readFileSync(path.join(__dirname, 'offers.json'), 'utf8');
