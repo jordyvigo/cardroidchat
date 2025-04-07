@@ -803,9 +803,31 @@ schedule.scheduleJob('30 8 * * *', async function() {
 });
 
 // ───────────────────────────────────────────────
+// ENDPOINT PARA REINICIAR LA SESIÓN DE WHATSAPP
+// ───────────────────────────────────────────────
+// Este endpoint destruye la sesión actual y fuerza a que se genere un nuevo QR
+app.get('/reset-session', async (req, res) => {
+  try {
+    console.log("Reiniciando sesión de WhatsApp...");
+    await client.destroy(); // Destruye la sesión actual
+    // Opcional: elimina la carpeta de sesión (si es necesario)
+    const sessionPath = path.join(__dirname, '.wwebjs_auth', 'cardroid-bot');
+    if (fs.existsSync(sessionPath)) {
+      fs.rmSync(sessionPath, { recursive: true, force: true });
+      console.log("Carpeta de sesión eliminada:", sessionPath);
+    }
+    client.initialize();
+    res.send("Sesión reiniciada. Escanee el nuevo QR cuando aparezca.");
+  } catch (err) {
+    console.error("Error reiniciando sesión:", err);
+    res.status(500).send("Error reiniciando la sesión");
+  }
+});
+
+// ───────────────────────────────────────────────
 // CONFIGURACIÓN DE WHATSAPP WEB (LocalAuth)
 // ───────────────────────────────────────────────
-// La sesión se guarda en .wwebjs_auth/cardroid-bot; para forzar un nuevo escaneo elimina esa carpeta.
+// Se utiliza LocalAuth para guardar la sesión en .wwebjs_auth/cardroid-bot
 const client = new Client({
   authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
   puppeteer: {
