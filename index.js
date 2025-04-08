@@ -184,13 +184,12 @@ async function registrarTransaccionCSV(texto) {
 // ───────────────────────────────────────────────
 // CONEXIÓN A MONGODB
 // ───────────────────────────────────────────────
-mongoose
-  .connect('mongodb+srv://jordyvigo:Gunbound2024@cardroid.crwia.mongodb.net/ofertaclientes?retryWrites=true&w=majority&appName=Cardroid', {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
-  })
-  .then(() => console.log('Conectado a MongoDB (ofertaclientes)'))
-  .catch(err => console.error('Error conectando a MongoDB:', err));
+mongoose.connect('mongodb+srv://jordyvigo:Gunbound2024@cardroid.crwia.mongodb.net/ofertaclientes?retryWrites=true&w=majority&appName=Cardroid', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+})
+.then(() => console.log('Conectado a MongoDB (ofertaclientes)'))
+.catch(err => console.error('Error conectando a MongoDB:', err));
 
 // ───────────────────────────────────────────────
 // MODELOS
@@ -547,6 +546,7 @@ app.get('/financiamiento/buscar', (req, res) => {
       h1 { text-align: center; }
       input, button { width: 100%; padding: 10px; margin: 5px 0; border-radius: 4px; border: 1px solid #ccc; }
       button { background-color: #28a745; color: #fff; border: none; }
+      nav { margin-bottom: 20px; }
     </style>
   </head>
   <body>
@@ -668,7 +668,7 @@ app.get('/crm/send-initial-offers', async (req, res) => {
     const totalClientes = clientes.length;
     const totalTime = 2 * 3600 * 1000; // 2 horas en milisegundos
     const delayBetweenClients = totalClientes > 0 ? totalTime / totalClientes : 0;
-    console.log(`Enviando ofertas a ${totalClientes} clientes con un intervalo de ${(delayBetweenClients / 1000).toFixed(2)} segundos.`);
+    console.log(`Enviando ofertas a ${totalClientes} clientes con un intervalo de ${(delayBetweenClients/1000).toFixed(2)} segundos.`);
     async function enviarOfertasCliente(cliente) {
       const numero = `${cliente.numero}@c.us`;
       console.log(`Enviando mensaje introductorio a ${cliente.numero}`);
@@ -726,6 +726,7 @@ app.get('/crm/send-custom', (req, res) => {
       h1 { text-align: center; }
       input, textarea, button, select { width: 100%; padding: 10px; margin: 5px 0; border-radius: 4px; border: 1px solid #ccc; }
       button { background-color: #007BFF; color: #fff; border: none; }
+      nav { margin-bottom: 20px; }
     </style>
   </head>
   <body>
@@ -943,7 +944,8 @@ schedule.scheduleJob('30 8 * * *', async function() {
 // ───────────────────────────────────────────────
 // CONFIGURACIÓN DE WHATSAPP WEB (LocalAuth)
 // ───────────────────────────────────────────────
-let client; // Declaración global para evitar duplicados
+// La sesión se guarda en .wwebjs_auth/cardroid-bot; para forzar un nuevo escaneo, elimina esa carpeta o usa el endpoint de reinicio.
+let client; // Declaración global única
 
 function createWhatsAppClient() {
   client = new Client({
@@ -977,22 +979,22 @@ function createWhatsAppClient() {
 
   client.on('auth_failure', msg => console.error('Error de autenticación:', msg));
 
-  // Manejador de mensajes: procesa comandos del admin y añade al cliente a publifinanciamiento
+  // Manejador de mensajes: procesa comandos del admin y solicitudes de financiamiento
   client.on('message', async (msg) => {
     console.log("Mensaje recibido:", msg.body);
     const from = msg.from; // Ej: "51931367147@c.us"
     const lowerBody = msg.body.toLowerCase();
     const adminId = adminNumber + '@c.us';
 
-    // Si el mensaje es del admin, procesar algunos comandos (por ejemplo, "oferta")
+    // Comandos del admin
     if (from === adminId) {
       if (lowerBody === 'oferta') {
         msg.reply("Comando 'oferta' recibido. Consulta el panel CRM para enviar promociones.");
       }
-      // Se pueden agregar más comandos del admin según se requiera…
+      // Otros comandos del admin se pueden agregar aquí...
     }
 
-    // Si el mensaje contiene “deseo” y “financiamiento” (en cualquier orden), se agrega a la colección publifinanciamiento
+    // Si el mensaje contiene “deseo” y “financiamiento”, agregar a publifinanciamiento
     if (lowerBody.includes("deseo") && lowerBody.includes("financiamiento")) {
       try {
         const numeroCliente = from.split('@')[0];
@@ -1012,7 +1014,7 @@ function createWhatsAppClient() {
   client.initialize();
 }
 
-// Inicializamos el cliente al arrancar el servidor
+// Inicializamos el cliente de WhatsApp al arrancar el servidor
 createWhatsAppClient();
 
 // Endpoint para forzar reinicio de la sesión de WhatsApp
@@ -1244,7 +1246,8 @@ schedule.scheduleJob('30 8 * * *', async function() {
 // ───────────────────────────────────────────────
 // CONFIGURACIÓN DE WHATSAPP WEB (LocalAuth)
 // ───────────────────────────────────────────────
-let client; // Declaración global para evitar duplicados
+// La sesión se guarda en .wwebjs_auth/cardroid-bot; para forzar un nuevo escaneo, elimina esa carpeta o usa el endpoint de reinicio.
+let client; // Declaración global única
 
 function createWhatsAppClient() {
   client = new Client({
