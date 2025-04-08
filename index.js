@@ -26,6 +26,7 @@ const botNumber = "51999999999";
 function getNavBar() {
   return `
     <nav style="background:#007BFF; padding:10px; text-align:center; margin-bottom:20px;">
+      <a style="color:white; margin:0 10px; text-decoration:none;" href="/">Inicio</a>
       <a style="color:white; margin:0 10px; text-decoration:none;" href="/crm">Dashboard CRM</a>
       <a style="color:white; margin:0 10px; text-decoration:none;" href="/financiamiento/crear">Nuevo Financiamiento</a>
       <a style="color:white; margin:0 10px; text-decoration:none;" href="/financiamiento/buscar">Buscar Financiamiento</a>
@@ -253,7 +254,7 @@ const offerSchema = new mongoose.Schema({
 });
 const Offer = mongoose.model('Offer', offerSchema, 'offers');
 
-// Nuevo modelo Publifinanciamiento (para clientes interesados en financiamiento)
+// Modelo Publifinanciamiento (para clientes interesados en financiamiento)
 const publifinanciamientoSchema = new mongoose.Schema({
   numero: { type: String, required: true, unique: true },
   message: { type: String },
@@ -350,7 +351,7 @@ async function generarGarantiaPDF(data) {
     doc.on('data', buffers.push.bind(buffers));
     doc.on('end', () => resolve(Buffer.concat(buffers)));
     doc.on('error', err => reject(err));
-
+  
     doc.fontSize(18).text('GARANTÍA GENERAL – RADIO ANDROID CARDROID', { align: 'center' });
     doc.moveDown();
     doc.fontSize(12).text(`Número de contacto del cliente: ${data.numeroCelular}`, { align: 'left' });
@@ -417,6 +418,46 @@ async function generarGarantiaPDF(data) {
 // ───────────────────────────────────────────────
 // ENDPOINTS DE LA API Y CRM
 // ───────────────────────────────────────────────
+
+// Panel de navegación
+app.get('/', (req, res) => {
+  const content = `
+    <h1>Panel de Navegación</h1>
+    <ul>
+      <li><a href="/crm">Dashboard CRM</a></li>
+      <li><a href="/financiamiento/crear">Nuevo Financiamiento</a></li>
+      <li><a href="/financiamiento/buscar">Buscar Financiamiento</a></li>
+      <li><a href="/garantia/crear">Generar Garantía</a></li>
+      <li><a href="/crm/send-custom">Mensajes Personalizados</a></li>
+      <li><a href="/crm/send-initial-offers">Ofertas Masivas</a></li>
+      <li><a href="/crm/export-transactions">Exportar Transacciones</a></li>
+      <li><a href="/qr">Ver QR</a></li>
+      <li><a href="/whatsapp/restart">Reiniciar WhatsApp</a></li>
+    </ul>
+  `;
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Panel de Navegación</title>
+      <style>
+        body { font-family: Arial, sans-serif; background: #f7f7f7; margin: 0; padding: 20px; }
+        .container { max-width: 800px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; }
+        ul { list-style: none; padding: 0; }
+        li { margin: 10px 0; }
+        a { text-decoration: none; color: #007BFF; font-size: 18px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        ${content}
+      </div>
+    </body>
+    </html>
+  `);
+});
 
 // Financiamiento: Formulario responsivo para crear financiamiento
 app.get('/financiamiento/crear', (req, res) => {
@@ -524,7 +565,7 @@ app.post('/financiamiento/crear', async (req, res) => {
       console.error('Error enviando contrato:', e);
       throw e;
     }
-    res.send("Financiamiento registrado y contrato enviado.");
+    res.send(renderNavPanel("Financiamiento registrado y contrato enviado."));
   } catch (err) {
     console.error("Error registrando financiamiento:", err);
     res.status(500).send("Error registrando financiamiento");
@@ -702,10 +743,10 @@ app.get('/crm/send-initial-offers', async (req, res) => {
       setTimeout(() => enviarOfertasRecursivo(index + 1), delayBetweenClients);
     }
     enviarOfertasRecursivo(0);
-    res.send('Proceso de envío de ofertas iniciales iniciado.');
+    res.send("Proceso de envío de ofertas iniciales iniciado.");
   } catch (err) {
-    console.error('Error en el envío masivo de ofertas:', err);
-    res.status(500).send('Error en el envío masivo de ofertas.');
+    console.error("Error en el envío masivo de ofertas:", err);
+    res.status(500).send("Error en el envío masivo de ofertas.");
   }
 });
 
@@ -944,7 +985,7 @@ schedule.scheduleJob('30 8 * * *', async function() {
 // ───────────────────────────────────────────────
 // CONFIGURACIÓN DE WHATSAPP WEB (LocalAuth)
 // ───────────────────────────────────────────────
-// La sesión se guarda en .wwebjs_auth/cardroid-bot; para forzar un nuevo escaneo, elimina esa carpeta o usa el endpoint de reinicio.
+// Declaramos la variable global "client" UNA SOLA VEZ.
 let client; // Declaración global única
 
 function createWhatsAppClient() {
@@ -990,308 +1031,7 @@ function createWhatsAppClient() {
     if (from === adminId) {
       if (lowerBody === 'oferta') {
         msg.reply("Comando 'oferta' recibido. Consulta el panel CRM para enviar promociones.");
-      }
-      // Otros comandos del admin se pueden agregar aquí...
-    }
-
-    // Si el mensaje contiene “deseo” y “financiamiento”, agregar a publifinanciamiento
-    if (lowerBody.includes("deseo") && lowerBody.includes("financiamiento")) {
-      try {
-        const numeroCliente = from.split('@')[0];
-        const existe = await Publifinanciamiento.findOne({ numero: numeroCliente });
-        if (!existe) {
-          const nuevoPub = new Publifinanciamiento({ numero: numeroCliente, message: msg.body });
-          await nuevoPub.save();
-          console.log("Cliente agregado a publifinanciamiento:", numeroCliente);
-        }
-        msg.reply("Gracias, hemos registrado tu solicitud de financiamiento.");
-      } catch (err) {
-        console.error("Error registrando en publifinanciamiento:", err);
-      }
-    }
-  });
-
-  client.initialize();
-}
-
-// Inicializamos el cliente de WhatsApp al arrancar el servidor
-createWhatsAppClient();
-
-// Endpoint para forzar reinicio de la sesión de WhatsApp
-app.get('/whatsapp/restart', async (req, res) => {
-  try {
-    console.log('Forzando reinicio de la sesión de WhatsApp...');
-    if (client) {
-      await client.destroy();
-      console.log('Cliente destruido.');
-    }
-    const sessionPath = path.join(__dirname, '.wwebjs_auth', 'cardroid-bot');
-    if (fs.existsSync(sessionPath)) {
-      fs.rmSync(sessionPath, { recursive: true, force: true });
-      console.log('Carpeta de sesión eliminada:', sessionPath);
-    }
-    createWhatsAppClient();
-    res.send("Sesión reiniciada. Revisa /qr para escanear el nuevo código, si no se autogenera.");
-  } catch (err) {
-    console.error('Error reiniciando la sesión:', err);
-    res.status(500).send("Error reiniciando la sesión");
-  }
-});
-
-// ───────────────────────────────────────────────
-// NUEVO ENDPOINT: GENERAR CERTIFICADO DE GARANTÍA
-// ───────────────────────────────────────────────
-app.get('/garantia/crear', (req, res) => {
-  res.send(`
-  <!DOCTYPE html>
-  <html lang="es">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generar Garantía</title>
-    <style>
-      body { font-family: Arial, sans-serif; background: #f7f7f7; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-      .container { background: #fff; padding: 20px; border-radius: 8px; width: 90%; max-width: 500px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-      h1 { text-align: center; }
-      input, button { width: 100%; padding: 10px; margin: 5px 0; border-radius: 4px; border: 1px solid #ccc; }
-      button { background-color: #007BFF; color: #fff; border: none; }
-      nav { margin-bottom: 20px; }
-    </style>
-  </head>
-  <body>
-    ${getNavBar()}
-    <div class="container">
-      <h1>Generar Certificado de Garantía</h1>
-      <form method="POST" action="/garantia/crear">
-        <input type="text" name="numeroCelular" placeholder="Número de contacto (sin '+')" required>
-        <input type="text" name="fechaInstalacion" placeholder="Fecha de instalación (DD/MM/YYYY)" required>
-        <input type="text" name="placa" placeholder="Placa del vehículo (opcional)">
-        <button type="submit">Generar Garantía</button>
-      </form>
-    </div>
-  </body>
-  </html>
-  `);
-});
-
-app.post('/garantia/crear', async (req, res) => {
-  try {
-    const { numeroCelular, fechaInstalacion, placa } = req.body;
-    console.debug("Datos recibidos para garantía:", req.body);
-    const garantiaData = { numeroCelular, fechaInstalacion, placa };
-    const pdfBuffer = await generarGarantiaPDF(garantiaData);
-    
-    let numberId;
-    try {
-      numberId = await client.getNumberId(numeroCelular);
-      console.debug('getNumberId en garantía:', numberId);
-    } catch (err) {
-      console.error('Error en getNumberId al enviar garantía:', err);
-    }
-    if (!numberId) {
-      numberId = { _serialized: numeroCelular + '@c.us' };
-      console.warn('Usando fallback para número:', numberId._serialized);
-    }
-    const pdfMedia = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), 'CertificadoGarantia.pdf');
-    try {
-      await client.sendMessage(numberId._serialized, pdfMedia, { caption: 'Adjunto: Certificado de Garantía' });
-    } catch (e) {
-      console.error('Error enviando certificado de garantía:', e);
-      throw e;
-    }
-    res.send("Certificado de garantía generado y enviado.");
-  } catch (err) {
-    console.error("Error generando certificado de garantía:", err);
-    res.status(500).send("Error generando certificado de garantía");
-  }
-});
-
-// ───────────────────────────────────────────────
-// ENDPOINTS PARA OTRAS OPERACIONES (Transacción, etc.)
-// ───────────────────────────────────────────────
-// Transacción: Registrar gasto/venta
-app.post('/transaccion/crear', async (req, res) => {
-  try {
-    const { texto } = req.body;
-    await registrarTransaccionCSV(texto);
-    res.send("Transacción registrada.");
-  } catch (err) {
-    console.error("Error registrando transacción:", err);
-    res.status(500).send("Error registrando transacción");
-  }
-});
-
-// ENDPOINT: Exportar CSV de transacciones
-app.get('/crm/export-transactions', (req, res) => {
-  if (fs.existsSync(csvFilePath)) {
-    res.download(csvFilePath, 'transacciones.csv');
-  } else {
-    res.status(404).send('No se encontró el archivo de transacciones.');
-  }
-});
-
-// ENDPOINT: Visualizar QR
-app.get('/qr', (req, res) => {
-  const qrPath = path.join(__dirname, 'whatsapp-qr.png');
-  if (fs.existsSync(qrPath)) {
-    res.sendFile(qrPath);
-  } else {
-    res.status(404).send('El archivo QR no existe o aún no se ha generado.');
-  }
-});
-
-// ───────────────────────────────────────────────
-// DASHBOARD CRM RESPONSIVO
-// ───────────────────────────────────────────────
-app.get('/crm', async (req, res) => {
-  try {
-    const totalClientes = await Cliente.countDocuments({});
-    const totalOfertasSolicitadas = await Interaccion.countDocuments({ tipo: "solicitudOferta" });
-    const totalRespuestasOferta = await Interaccion.countDocuments({ tipo: "respuestaOferta" });
-    const totalSolicitudesInfo = await Interaccion.countDocuments({ tipo: "solicitudInfo" });
-    const clientes = await Cliente.find({}).select('numero lastInteraction -_id').lean();
-    const html = `
-    <!DOCTYPE html>
-    <html lang="es">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>CRM Dashboard</title>
-      <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background: #f7f7f7; }
-        .container { max-width: 1000px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; }
-        .stat { margin-bottom: 10px; font-size: 18px; }
-        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        th { background-color: #f2f2f2; }
-        button { padding: 10px 20px; font-size: 16px; margin: 5px; background: #007BFF; color: #fff; border: none; border-radius: 4px; }
-        @media (max-width: 600px) { .stat, table, button { font-size: 14px; } }
-      </style>
-    </head>
-    <body>
-      ${getNavBar()}
-      <div class="container">
-        <h1>CRM Dashboard</h1>
-        <div class="stat">Clientes registrados: ${totalClientes}</div>
-        <div class="stat">Solicitudes de oferta: ${totalOfertasSolicitadas}</div>
-        <div class="stat">Respuestas a ofertas: ${totalRespuestasOferta}</div>
-        <div class="stat">Solicitudes de información: ${totalSolicitudesInfo}</div>
-        <div>
-          <button onclick="location.href='/crm/send-initial-offers'">Enviar Oferta a Todos</button>
-          <button onclick="location.href='/crm/send-custom'">Enviar Mensaje Personalizado</button>
-          <button onclick="location.href='/crm/export-transactions'">Exportar Transacciones</button>
-        </div>
-        <h2>Lista de Clientes</h2>
-        <table>
-          <tr>
-            <th>Número</th>
-            <th>Última Interacción</th>
-          </tr>
-          ${clientes.map(cliente => `<tr><td>${cliente.numero}</td><td>${new Date(cliente.lastInteraction).toLocaleString()}</td></tr>`).join('')}
-        </table>
-      </div>
-    </body>
-    </html>
-    `;
-    res.send(html);
-  } catch (err) {
-    console.error('Error en el dashboard:', err);
-    res.status(500).send('Error generando el dashboard');
-  }
-});
-
-// ───────────────────────────────────────────────
-// RECORDATORIOS
-// ───────────────────────────────────────────────
-// Recordatorio diario de garantías (08:00 AM GMT-5)
-schedule.scheduleJob('0 8 * * *', async function() {
-  const today = getCurrentDateGMTMinus5();
-  const targetDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
-  const targetStr = formatDateDDMMYYYY(targetDate);
-  console.debug(`Recordatorio: Buscando garantías que expiran el ${targetStr}`);
-  const expiringGuarantees = await Comprador.find({ fechaExpiracion: targetStr });
-  expiringGuarantees.forEach(async guarantee => {
-    console.debug(`Enviando recordatorio a ${guarantee.numero} para ${guarantee.producto}`);
-    await client.sendMessage(
-      guarantee.numero + '@c.us',
-      `Recordatorio: Tu garantía para ${guarantee.producto}${guarantee.placa ? ' (Placa: ' + guarantee.placa + ')' : ''} expira el ${guarantee.fechaExpiracion}.`
-    );
-  });
-});
-
-// Recordatorio de cuotas vencientes (08:30 AM GMT-5)
-schedule.scheduleJob('30 8 * * *', async function() {
-  const today = getCurrentDateGMTMinus5();
-  const todayStr = formatDateDDMMYYYY(today);
-  console.debug(`Recordatorio cuotas: Buscando cuotas vencientes para hoy ${todayStr}`);
-  const financiamientos = await Financiamiento.find({});
-  for (const fin of financiamientos) {
-    for (const [index, cuota] of fin.cuotas.entries()) {
-      if (!cuota.pagada && cuota.vencimiento === todayStr) {
-        const msg = `Recordatorio: Tu cuota ${index + 1} para ${fin.producto} vence hoy (${cuota.vencimiento}). Por favor realiza tu pago.`;
-        let numberId;
-        try {
-          numberId = await client.getNumberId(fin.numero);
-          if (!numberId) numberId = { _serialized: fin.numero + '@c.us' };
-          await client.sendMessage(numberId._serialized, msg);
-          console.log(`Recordatorio enviado a ${fin.numero} para cuota ${index + 1}`);
-        } catch (err) {
-          console.error(`Error enviando recordatorio para ${fin.numero}:`, err);
-        }
-      }
-    }
-  }
-});
-
-// ───────────────────────────────────────────────
-// CONFIGURACIÓN DE WHATSAPP WEB (LocalAuth)
-// ───────────────────────────────────────────────
-// La sesión se guarda en .wwebjs_auth/cardroid-bot; para forzar un nuevo escaneo, elimina esa carpeta o usa el endpoint de reinicio.
-let client; // Declaración global única
-
-function createWhatsAppClient() {
-  client = new Client({
-    authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
-    puppeteer: {
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu',
-        '--no-first-run'
-      ]
-    }
-  });
-
-  client.on('qr', async (qrCode) => {
-    console.debug('QR recibido.');
-    try {
-      await QRCode.toFile('whatsapp-qr.png', qrCode);
-      console.debug('QR generado en "whatsapp-qr.png".');
-    } catch (err) {
-      console.error('Error generando QR:', err);
-    }
-  });
-
-  client.on('ready', () => {
-    console.debug('WhatsApp Bot listo para recibir mensajes!');
-  });
-
-  client.on('auth_failure', msg => console.error('Error de autenticación:', msg));
-
-  // Manejador de mensajes: procesa comandos del admin y solicitudes de financiamiento
-  client.on('message', async (msg) => {
-    console.log("Mensaje recibido:", msg.body);
-    const from = msg.from; // Ej: "51931367147@c.us"
-    const lowerBody = msg.body.toLowerCase();
-    const adminId = adminNumber + '@c.us';
-
-    // Comandos del admin
-    if (from === adminId) {
-      if (lowerBody === 'oferta') {
-        msg.reply("Comando 'oferta' recibido. Consulta el panel CRM para enviar promociones.");
+        // Aquí se puede agregar lógica adicional para ofertas.
       }
       // Otros comandos del admin se pueden agregar aquí...
     }
