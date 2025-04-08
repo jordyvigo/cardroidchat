@@ -29,7 +29,7 @@ function sleep(ms) {
 }
 
 function getCurrentDateGMTMinus5() {
-  // Usa la zona horaria de Lima (GMT-5)
+  // Se utiliza la zona horaria de Lima (GMT-5)
   return new Date(new Date().toLocaleString("en-US", { timeZone: "America/Lima" }));
 }
 
@@ -179,6 +179,7 @@ mongoose.connect('mongodb+srv://jordyvigo:Gunbound2024@cardroid.crwia.mongodb.ne
 // ───────────────────────────────────────────────
 // MODELOS
 // ───────────────────────────────────────────────
+
 // Modelo Cliente
 const clienteSchema = new mongoose.Schema({
   numero: { type: String, required: true, unique: true },
@@ -249,7 +250,7 @@ async function generarContratoPDF(data) {
     doc.on('end', () => resolve(Buffer.concat(buffers)));
     doc.on('error', err => reject(err));
 
-    // Redacción del contrato según el formato solicitado
+    // Redacción del contrato basado en el formato solicitado
     doc.fontSize(18).text('CONTRATO DE FINANCIAMIENTO DIRECTO CON OPCIÓN A COMPRA', { align: 'center' });
     doc.moveDown();
     doc.fontSize(12).text(`Con este documento, CRD IMPORT, representado por el Sr. Jordy Vigo, con DNI N.° ____________, en adelante "EL VENDEDOR", y el cliente ${data.nombre_cliente}, identificado con DNI N.° ${data.dni_cliente}, con vehículo de placa ${data.placa_vehiculo}, en adelante "EL CLIENTE", acuerdan lo siguiente:`);
@@ -314,6 +315,126 @@ async function generarContratoPDF(data) {
     doc.text(`Nombre: ${data.nombre_cliente}`, { align: 'left' });
     doc.text(`DNI: ${data.dni_cliente}`, { align: 'left' });
     doc.text(`Placa: ${data.placa_vehiculo}`, { align: 'left' });
+    doc.end();
+  });
+}
+
+// ───────────────────────────────────────────────
+// NUEVO ENDPOINT: GENERAR GARANTÍA PDF
+// ───────────────────────────────────────────────
+// Este endpoint genera el certificado de garantía basándose en el siguiente formato:
+// 
+// GARANTÍA GENERAL – RADIO ANDROID CARDROID  
+// Número de contacto del cliente: {{numeroCelular}}  
+// Fecha de instalación: {{fechaInstalacion}}  
+// {{#if placa}}Placa del vehículo: {{placa}}{{/if}}  
+//  
+// 1. DURACIÓN DE LA GARANTÍA  
+// La garantía tiene una vigencia de 1 año calendario desde la fecha de instalación ({{fechaInstalacion}}), y aplica exclusivamente a defectos de fábrica del producto instalado.  
+//  
+// 2. COBERTURA DE GARANTÍA  
+// Incluye:  
+//  
+// Fallas internas del sistema causadas por defecto de fabricación.  
+//  
+// Problemas del software original (sin modificaciones).  
+//  
+// Pantalla sin imagen o sin tacto sin daño físico visible.  
+//  
+// El proceso de evaluación técnica tomará entre 3 a 7 días hábiles desde la recepción del equipo.  
+//  
+// 3. EXCLUSIONES EXPLÍCITAS DE GARANTÍA  
+// Esta garantía no aplica en los siguientes casos:  
+//  
+// A. Daños físicos o ambientales:  
+// Pantalla rota, rayada, hundida o con manchas.  
+// Golpes, fisuras, deformaciones o rastros de presión excesiva.  
+// Ingreso de líquidos, humedad, vapor, tierra o corrosión.  
+//  
+// B. Limpieza incorrecta:  
+// Uso de silicona líquida, abrillantador o alcohol directo sobre la pantalla.  
+// Limpieza en carwash con productos grasosos o paños con químicos.  
+// Pérdida de sensibilidad táctil por productos abrasivos o trapos contaminados.  
+//  
+// C. Problemas derivados del vehículo:  
+// Picos de voltaje, cortocircuitos o fallas del sistema eléctrico.  
+// Problemas causados por el alternador, batería, adaptadores o instalaciones deficientes.  
+// Apagones repentinos o reinicios constantes por mala conexión del borne.  
+//  
+// D. Manipulación o modificación no autorizada:  
+// Instalación, apertura o reparación por personal ajeno a Cardroid.  
+// Instalación de ROMs no oficiales, flasheo, root o software de terceros.  
+// Cambios en el sistema operativo o uso de apps que sobrecarguen el equipo.  
+//  
+// E. Uso indebido o negligente:  
+// Conectar dispositivos no compatibles o de alto consumo por USB.  
+// Uso prolongado con el motor apagado.  
+// Exceso de calor por falta de ventilación o ubicación inapropiada.  
+//  
+// 4. OTROS ASPECTOS NO CUBIERTOS  
+// Daños o mal funcionamiento de cámaras de retroceso, consolas, marcos, micrófonos, antenas, adaptadores, etc.  
+// Pérdida de datos, cuentas, configuraciones, apps o contraseñas.  
+// Problemas de red WiFi, incompatibilidad con apps externas o streaming.  
+// Dificultad para ver Netflix, Disney+, YouTube, etc., si el sistema fue modificado.  
+//  
+// 5. RECOMENDACIONES PARA PRESERVAR TU GARANTÍA  
+// No permitas que terceros manipulen la radio.  
+// Limpia solo con paño de microfibra ligeramente humedecido con agua.  
+// Evita el uso de silicona o abrillantador en carwash o en el interior del auto.  
+// Instala solo apps necesarias desde Play Store.  
+// Siempre enciende la radio con el motor encendido para evitar daños eléctricos.
+async function generarGarantiaPDF(data) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 50 });
+    let buffers = [];
+    doc.on('data', buffers.push.bind(buffers));
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
+    doc.on('error', err => reject(err));
+
+    doc.fontSize(18).text('GARANTÍA GENERAL – RADIO ANDROID CARDROID', { align: 'center' });
+    doc.moveDown();
+    doc.fontSize(12).text(`Número de contacto del cliente: ${data.numeroCelular}`);
+    doc.text(`Fecha de instalación: ${data.fechaInstalacion}`);
+    if (data.placa) {
+      doc.text(`Placa del vehículo: ${data.placa}`);
+    }
+    doc.moveDown();
+    doc.text('1. DURACIÓN DE LA GARANTÍA');
+    doc.text(`La garantía tiene una vigencia de 1 año calendario desde la fecha de instalación (${data.fechaInstalacion}), y aplica exclusivamente a defectos de fábrica del producto instalado.`);
+    doc.moveDown();
+    doc.text('2. COBERTURA DE GARANTÍA');
+    doc.text('Incluye:');
+    doc.list([
+      'Fallas internas del sistema causadas por defecto de fabricación.',
+      'Problemas del software original (sin modificaciones).',
+      'Pantalla sin imagen o sin tacto sin daño físico visible.',
+      'El proceso de evaluación técnica tomará entre 3 a 7 días hábiles desde la recepción del equipo.'
+    ]);
+    doc.moveDown();
+    doc.text('3. EXCLUSIONES EXPLÍCITAS DE GARANTÍA');
+    doc.text('Esta garantía no aplica en los siguientes casos:');
+    doc.list([
+      'A. Daños físicos o ambientales: Pantalla rota, rayada, hundida o con manchas. Golpes, fisuras, deformaciones o rastros de presión excesiva. Ingreso de líquidos, humedad, vapor, tierra o corrosión.',
+      'B. Limpieza incorrecta: Uso de silicona líquida, abrillantador o alcohol directo sobre la pantalla. Limpieza en carwash con productos grasosos o paños con químicos. Pérdida de sensibilidad táctil por productos abrasivos o trapos contaminados.',
+      'C. Problemas derivados del vehículo: Picos de voltaje, cortocircuitos o fallas del sistema eléctrico. Problemas causados por el alternador, batería, adaptadores o instalaciones deficientes. Apagones repentinos o reinicios constantes por mala conexión del borne.',
+      'D. Manipulación o modificación no autorizada: Instalación, apertura o reparación por personal ajeno a Cardroid. Instalación de ROMs no oficiales, flasheo, root o software de terceros. Cambios en el sistema operativo o uso de apps que sobrecarguen el equipo.',
+      'E. Uso indebido o negligente: Conectar dispositivos no compatibles o de alto consumo por USB. Uso prolongado con el motor apagado. Exceso de calor por falta de ventilación o ubicación inapropiada.'
+    ]);
+    doc.moveDown();
+    doc.text('4. OTROS ASPECTOS NO CUBIERTOS');
+    doc.text('Daños o mal funcionamiento de cámaras de retroceso, consolas, marcos, micrófonos, antenas, adaptadores, etc.');
+    doc.text('Pérdida de datos, cuentas, configuraciones, apps o contraseñas.');
+    doc.text('Problemas de red WiFi, incompatibilidad con apps externas o streaming.');
+    doc.text('Dificultad para ver Netflix, Disney+, YouTube, etc., si el sistema fue modificado.');
+    doc.moveDown();
+    doc.text('5. RECOMENDACIONES PARA PRESERVAR TU GARANTÍA');
+    doc.list([
+      'No permitas que terceros manipulen la radio.',
+      'Limpia solo con paño de microfibra ligeramente humedecido con agua.',
+      'Evita el uso de silicona o abrillantador en carwash o en el interior del auto.',
+      'Instala solo apps necesarias desde Play Store.',
+      'Siempre enciende la radio con el motor encendido para evitar daños eléctricos.'
+    ]);
     doc.end();
   });
 }
@@ -673,9 +794,7 @@ app.post('/crm/send-custom', async (req, res) => {
     if (collection === 'especifico') {
       if (!numero) return res.send("Debes ingresar un número para enviar el mensaje específico.");
       let target = numero.trim();
-      if (!target.startsWith('51')) {
-        target = '51' + target;
-      }
+      if (!target.startsWith('51')) { target = '51' + target; }
       targets.push(target + '@c.us');
     } else if (collection === 'clientes') {
       const docs = await Cliente.find({});
@@ -838,10 +957,80 @@ schedule.scheduleJob('30 8 * * *', async function() {
 });
 
 // ───────────────────────────────────────────────
+// NUEVO ENDPOINT: GENERAR GARANTÍA PDF
+// ───────────────────────────────────────────────
+app.get('/garantia/crear', (req, res) => {
+  // Formulario para ingresar datos de garantía
+  res.send(`
+  <!DOCTYPE html>
+  <html lang="es">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generar Garantía</title>
+    <style>
+      body { font-family: Arial, sans-serif; background: #f7f7f7; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+      .container { background: #fff; padding: 20px; border-radius: 8px; width: 90%; max-width: 500px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+      h1 { text-align: center; }
+      input, button { width: 100%; padding: 10px; margin: 5px 0; border-radius: 4px; border: 1px solid #ccc; }
+      button { background-color: #28a745; color: #fff; border: none; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Generar Garantía</h1>
+      <form method="POST" action="/garantia/crear">
+        <input type="text" name="numeroCelular" placeholder="Número de contacto (sin '+')" required>
+        <input type="text" name="fechaInstalacion" placeholder="Fecha de instalación (DD/MM/YYYY)" required>
+        <input type="text" name="placa" placeholder="Placa (opcional)">
+        <button type="submit">Generar Garantía y Enviar</button>
+      </form>
+    </div>
+  </body>
+  </html>
+  `);
+});
+
+app.post('/garantia/crear', async (req, res) => {
+  try {
+    const { numeroCelular, fechaInstalacion, placa } = req.body;
+    // Generar PDF de garantía
+    const pdfBuffer = await generarGarantiaPDF({
+      numeroCelular,
+      fechaInstalacion,
+      placa
+    });
+    // Enviar PDF por WhatsApp al número indicado
+    let numberId;
+    try {
+      numberId = await client.getNumberId(numeroCelular);
+      console.debug('getNumberId en garantía:', numberId);
+    } catch (err) {
+      console.error('Error en getNumberId al enviar garantía:', err);
+    }
+    if (!numberId) {
+      numberId = { _serialized: numeroCelular + '@c.us' };
+      console.warn('Usando fallback para número:', numberId._serialized);
+    }
+    const pdfMedia = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), 'CertificadoGarantia.pdf');
+    try {
+      await client.sendMessage(numberId._serialized, pdfMedia, { caption: 'Adjunto: Certificado de Garantía' });
+    } catch (e) {
+      console.error('Error enviando garantía:', e);
+      throw e;
+    }
+    res.send("Garantía generada y enviada.");
+  } catch (err) {
+    console.error("Error generando garantía:", err);
+    res.status(500).send("Error generando garantía");
+  }
+});
+
+// ───────────────────────────────────────────────
 // CONFIGURACIÓN DE WHATSAPP WEB (LocalAuth)
 // ───────────────────────────────────────────────
-// La sesión se guarda en .wwebjs_auth/cardroid-bot; para forzar un nuevo escaneo, elimina esa carpeta o usa el endpoint de reinicio.
-let client; // Declaración global para evitar duplicados
+// La sesión se guarda en .wwebjs_auth/cardroid-bot; para forzar un nuevo escaneo, elimine esa carpeta o use el endpoint de reinicio.
+let client; // Declaración global
 
 function createWhatsAppClient() {
   client = new Client({
@@ -874,8 +1063,12 @@ function createWhatsAppClient() {
   });
 
   client.on('auth_failure', msg => console.error('Error de autenticación:', msg));
-
-  // Aquí se pueden agregar más handlers (por ejemplo, client.on('message', ...)) según se requiera
+  
+  // Ejemplo básico de lectura de mensajes
+  client.on('message', msg => {
+    console.log("Mensaje recibido:", msg.body);
+    // Aquí puede agregar lógica para comandos o respuestas
+  });
 
   client.initialize();
 }
