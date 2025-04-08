@@ -22,6 +22,21 @@ const adminNumber = "51931367147";
 const botNumber = "51999999999";
 
 // ───────────────────────────────────────────────
+// PANEL DE NAVEGACIÓN (para incluir en cada HTML)
+function getNavBar() {
+  return `
+  <nav style="background:#007BFF; padding:10px; text-align:center; margin-bottom:20px;">
+    <a style="color:white; margin: 0 10px; text-decoration:none;" href="/crm">Dashboard CRM</a>
+    <a style="color:white; margin: 0 10px; text-decoration:none;" href="/financiamiento/crear">Nuevo Financiamiento</a>
+    <a style="color:white; margin: 0 10px; text-decoration:none;" href="/financiamiento/buscar">Buscar Financiamiento</a>
+    <a style="color:white; margin: 0 10px; text-decoration:none;" href="/garantia/crear">Generar Garantía</a>
+    <a style="color:white; margin: 0 10px; text-decoration:none;" href="/qr">Ver QR</a>
+    <a style="color:white; margin: 0 10px; text-decoration:none;" href="/whatsapp/restart">Reiniciar WhatsApp</a>
+  </nav>
+  `;
+}
+
+// ───────────────────────────────────────────────
 // FUNCIONES HELPERS
 // ───────────────────────────────────────────────
 function sleep(ms) {
@@ -29,7 +44,6 @@ function sleep(ms) {
 }
 
 function getCurrentDateGMTMinus5() {
-  // Se utiliza la zona horaria de Lima (GMT-5)
   return new Date(new Date().toLocaleString("en-US", { timeZone: "America/Lima" }));
 }
 
@@ -179,7 +193,6 @@ mongoose.connect('mongodb+srv://jordyvigo:Gunbound2024@cardroid.crwia.mongodb.ne
 // ───────────────────────────────────────────────
 // MODELOS
 // ───────────────────────────────────────────────
-
 // Modelo Cliente
 const clienteSchema = new mongoose.Schema({
   numero: { type: String, required: true, unique: true },
@@ -196,7 +209,7 @@ const interaccionSchema = new mongoose.Schema({
   ofertaReferencia: { type: String },
   createdAt: { type: Date, default: Date.now }
 });
-const Interaccion = mongoose.model('Interaccion', interaccionSchema, 'interacciones');
+const Interaccion = mongoose.model('Interacción', interaccionSchema, 'interacciones');
 
 async function registrarInteraccion(numero, tipo, mensaje, ofertaReferencia = null) {
   console.debug(`Registrar interacción: ${numero} | ${tipo} | ${mensaje}`);
@@ -239,6 +252,14 @@ const offerSchema = new mongoose.Schema({
 });
 const Offer = mongoose.model('Offer', offerSchema, 'offers');
 
+// Nuevo modelo Publifinanciamiento (para clientes interesados en financiamiento)
+const publifinanciamientoSchema = new mongoose.Schema({
+  numero: { type: String, required: true, unique: true },
+  message: { type: String },
+  createdAt: { type: Date, default: Date.now }
+});
+const Publifinanciamiento = mongoose.model('Publifinanciamiento', publifinanciamientoSchema, 'publifinanciamiento');
+
 // ───────────────────────────────────────────────
 // FUNCIÓN PARA GENERAR CONTRATO PDF CON CRONOGRAMA DE PAGOS
 // ───────────────────────────────────────────────
@@ -249,8 +270,7 @@ async function generarContratoPDF(data) {
     doc.on('data', buffers.push.bind(buffers));
     doc.on('end', () => resolve(Buffer.concat(buffers)));
     doc.on('error', err => reject(err));
-
-    // Redacción del contrato basado en el formato solicitado
+    // Redacción del contrato con el formato solicitado
     doc.fontSize(18).text('CONTRATO DE FINANCIAMIENTO DIRECTO CON OPCIÓN A COMPRA', { align: 'center' });
     doc.moveDown();
     doc.fontSize(12).text(`Con este documento, CRD IMPORT, representado por el Sr. Jordy Vigo, con DNI N.° ____________, en adelante "EL VENDEDOR", y el cliente ${data.nombre_cliente}, identificado con DNI N.° ${data.dni_cliente}, con vehículo de placa ${data.placa_vehiculo}, en adelante "EL CLIENTE", acuerdan lo siguiente:`);
@@ -320,69 +340,8 @@ async function generarContratoPDF(data) {
 }
 
 // ───────────────────────────────────────────────
-// NUEVO ENDPOINT: GENERAR GARANTÍA PDF
+// NUEVO ENDPOINT: GENERAR CERTIFICADO DE GARANTÍA
 // ───────────────────────────────────────────────
-// Este endpoint genera el certificado de garantía basándose en el siguiente formato:
-// 
-// GARANTÍA GENERAL – RADIO ANDROID CARDROID  
-// Número de contacto del cliente: {{numeroCelular}}  
-// Fecha de instalación: {{fechaInstalacion}}  
-// {{#if placa}}Placa del vehículo: {{placa}}{{/if}}  
-//  
-// 1. DURACIÓN DE LA GARANTÍA  
-// La garantía tiene una vigencia de 1 año calendario desde la fecha de instalación ({{fechaInstalacion}}), y aplica exclusivamente a defectos de fábrica del producto instalado.  
-//  
-// 2. COBERTURA DE GARANTÍA  
-// Incluye:  
-//  
-// Fallas internas del sistema causadas por defecto de fabricación.  
-//  
-// Problemas del software original (sin modificaciones).  
-//  
-// Pantalla sin imagen o sin tacto sin daño físico visible.  
-//  
-// El proceso de evaluación técnica tomará entre 3 a 7 días hábiles desde la recepción del equipo.  
-//  
-// 3. EXCLUSIONES EXPLÍCITAS DE GARANTÍA  
-// Esta garantía no aplica en los siguientes casos:  
-//  
-// A. Daños físicos o ambientales:  
-// Pantalla rota, rayada, hundida o con manchas.  
-// Golpes, fisuras, deformaciones o rastros de presión excesiva.  
-// Ingreso de líquidos, humedad, vapor, tierra o corrosión.  
-//  
-// B. Limpieza incorrecta:  
-// Uso de silicona líquida, abrillantador o alcohol directo sobre la pantalla.  
-// Limpieza en carwash con productos grasosos o paños con químicos.  
-// Pérdida de sensibilidad táctil por productos abrasivos o trapos contaminados.  
-//  
-// C. Problemas derivados del vehículo:  
-// Picos de voltaje, cortocircuitos o fallas del sistema eléctrico.  
-// Problemas causados por el alternador, batería, adaptadores o instalaciones deficientes.  
-// Apagones repentinos o reinicios constantes por mala conexión del borne.  
-//  
-// D. Manipulación o modificación no autorizada:  
-// Instalación, apertura o reparación por personal ajeno a Cardroid.  
-// Instalación de ROMs no oficiales, flasheo, root o software de terceros.  
-// Cambios en el sistema operativo o uso de apps que sobrecarguen el equipo.  
-//  
-// E. Uso indebido o negligente:  
-// Conectar dispositivos no compatibles o de alto consumo por USB.  
-// Uso prolongado con el motor apagado.  
-// Exceso de calor por falta de ventilación o ubicación inapropiada.  
-//  
-// 4. OTROS ASPECTOS NO CUBIERTOS  
-// Daños o mal funcionamiento de cámaras de retroceso, consolas, marcos, micrófonos, antenas, adaptadores, etc.  
-// Pérdida de datos, cuentas, configuraciones, apps o contraseñas.  
-// Problemas de red WiFi, incompatibilidad con apps externas o streaming.  
-// Dificultad para ver Netflix, Disney+, YouTube, etc., si el sistema fue modificado.  
-//  
-// 5. RECOMENDACIONES PARA PRESERVAR TU GARANTÍA  
-// No permitas que terceros manipulen la radio.  
-// Limpia solo con paño de microfibra ligeramente humedecido con agua.  
-// Evita el uso de silicona o abrillantador en carwash o en el interior del auto.  
-// Instala solo apps necesarias desde Play Store.  
-// Siempre enciende la radio con el motor encendido para evitar daños eléctricos.
 async function generarGarantiaPDF(data) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50 });
@@ -395,9 +354,7 @@ async function generarGarantiaPDF(data) {
     doc.moveDown();
     doc.fontSize(12).text(`Número de contacto del cliente: ${data.numeroCelular}`);
     doc.text(`Fecha de instalación: ${data.fechaInstalacion}`);
-    if (data.placa) {
-      doc.text(`Placa del vehículo: ${data.placa}`);
-    }
+    if(data.placa) { doc.text(`Placa del vehículo: ${data.placa}`); }
     doc.moveDown();
     doc.text('1. DURACIÓN DE LA GARANTÍA');
     doc.text(`La garantía tiene una vigencia de 1 año calendario desde la fecha de instalación (${data.fechaInstalacion}), y aplica exclusivamente a defectos de fábrica del producto instalado.`);
@@ -439,8 +396,53 @@ async function generarGarantiaPDF(data) {
   });
 }
 
+//
 // ───────────────────────────────────────────────
 // ENDPOINTS DE LA API Y CRM
+// ───────────────────────────────────────────────
+//
+
+// --------------------------
+// HANDLER DE MENSAJES DE WHATSAPP
+// --------------------------
+function setupMessageHandler() {
+  client.on('message', async (msg) => {
+    console.log("Mensaje recibido:", msg.body);
+    const from = msg.from; // formato: número@c.us
+    const lowerBody = msg.body.toLowerCase();
+    const adminId = adminNumber + '@c.us';
+    
+    // Si el mensaje proviene del admin, procesar comandos
+    if (from === adminId) {
+      if (lowerBody === 'oferta') {
+        msg.reply("Comando 'oferta' recibido. Verifica el panel CRM para enviar ofertas masivas.");
+      }
+      // Aquí se pueden agregar más comandos de admin
+    }
+    
+    // Si el mensaje contiene las palabras "deseo" y "financiamiento", agregar a Publifinanciamiento
+    if (lowerBody.includes("deseo") && lowerBody.includes("financiamiento")) {
+      try {
+        const numero = from.split('@')[0];
+        const exist = await Publifinanciamiento.findOne({ numero });
+        if (!exist) {
+          const nuevo = new Publifinanciamiento({ numero, message: msg.body });
+          await nuevo.save();
+          console.log("Cliente agregado a Publifinanciamiento:", numero);
+        }
+        msg.reply("Gracias por tu interés, hemos registrado tu solicitud de financiamiento.");
+      } catch (err) {
+        console.error("Error al guardar en publifinanciamiento:", err);
+      }
+    }
+  });
+}
+
+// Llamar al handler de mensajes
+setupMessageHandler();
+
+// ───────────────────────────────────────────────
+// ENDPOINTS DEL CRM Y FINANCIAMIENTO
 // ───────────────────────────────────────────────
 
 // Financiamiento: Formulario responsivo para crear financiamiento
@@ -458,9 +460,11 @@ app.get('/financiamiento/crear', (req, res) => {
       h1 { text-align: center; }
       input, button { width: 100%; padding: 10px; margin: 5px 0; border-radius: 4px; border: 1px solid #ccc; }
       button { background-color: #007BFF; color: #fff; border: none; }
+      nav { margin-bottom: 20px; }
     </style>
   </head>
   <body>
+    ${getNavBar()}
     <div class="container">
       <h1>Registrar Financiamiento</h1>
       <form method="POST" action="/financiamiento/crear">
@@ -569,9 +573,11 @@ app.get('/financiamiento/buscar', (req, res) => {
       h1 { text-align: center; }
       input, button { width: 100%; padding: 10px; margin: 5px 0; border-radius: 4px; border: 1px solid #ccc; }
       button { background-color: #28a745; color: #fff; border: none; }
+      nav { margin-bottom: 20px; }
     </style>
   </head>
   <body>
+    ${getNavBar()}
     <div class="container">
       <h1>Buscar Financiamiento</h1>
       <form method="GET" action="/financiamiento/buscar/result">
@@ -613,6 +619,7 @@ app.get('/financiamiento/buscar/result', async (req, res) => {
       </style>
     </head>
     <body>
+      ${getNavBar()}
       <div class="container">
         <h2>Financiamientos encontrados</h2>
         <table>
@@ -749,6 +756,7 @@ app.get('/crm/send-custom', (req, res) => {
     </style>
   </head>
   <body>
+    ${getNavBar()}
     <div class="container">
       <h1>Enviar Mensaje Personalizado</h1>
       <form method="POST" action="/crm/send-custom">
@@ -883,6 +891,7 @@ app.get('/crm', async (req, res) => {
       </style>
     </head>
     <body>
+      ${getNavBar()}
       <div class="container">
         <h1>CRM Dashboard</h1>
         <div class="stat">Clientes registrados: ${totalClientes}</div>
@@ -957,80 +966,10 @@ schedule.scheduleJob('30 8 * * *', async function() {
 });
 
 // ───────────────────────────────────────────────
-// NUEVO ENDPOINT: GENERAR GARANTÍA PDF
-// ───────────────────────────────────────────────
-app.get('/garantia/crear', (req, res) => {
-  // Formulario para ingresar datos de garantía
-  res.send(`
-  <!DOCTYPE html>
-  <html lang="es">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generar Garantía</title>
-    <style>
-      body { font-family: Arial, sans-serif; background: #f7f7f7; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-      .container { background: #fff; padding: 20px; border-radius: 8px; width: 90%; max-width: 500px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-      h1 { text-align: center; }
-      input, button { width: 100%; padding: 10px; margin: 5px 0; border-radius: 4px; border: 1px solid #ccc; }
-      button { background-color: #28a745; color: #fff; border: none; }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <h1>Generar Garantía</h1>
-      <form method="POST" action="/garantia/crear">
-        <input type="text" name="numeroCelular" placeholder="Número de contacto (sin '+')" required>
-        <input type="text" name="fechaInstalacion" placeholder="Fecha de instalación (DD/MM/YYYY)" required>
-        <input type="text" name="placa" placeholder="Placa (opcional)">
-        <button type="submit">Generar Garantía y Enviar</button>
-      </form>
-    </div>
-  </body>
-  </html>
-  `);
-});
-
-app.post('/garantia/crear', async (req, res) => {
-  try {
-    const { numeroCelular, fechaInstalacion, placa } = req.body;
-    // Generar PDF de garantía
-    const pdfBuffer = await generarGarantiaPDF({
-      numeroCelular,
-      fechaInstalacion,
-      placa
-    });
-    // Enviar PDF por WhatsApp al número indicado
-    let numberId;
-    try {
-      numberId = await client.getNumberId(numeroCelular);
-      console.debug('getNumberId en garantía:', numberId);
-    } catch (err) {
-      console.error('Error en getNumberId al enviar garantía:', err);
-    }
-    if (!numberId) {
-      numberId = { _serialized: numeroCelular + '@c.us' };
-      console.warn('Usando fallback para número:', numberId._serialized);
-    }
-    const pdfMedia = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), 'CertificadoGarantia.pdf');
-    try {
-      await client.sendMessage(numberId._serialized, pdfMedia, { caption: 'Adjunto: Certificado de Garantía' });
-    } catch (e) {
-      console.error('Error enviando garantía:', e);
-      throw e;
-    }
-    res.send("Garantía generada y enviada.");
-  } catch (err) {
-    console.error("Error generando garantía:", err);
-    res.status(500).send("Error generando garantía");
-  }
-});
-
-// ───────────────────────────────────────────────
 // CONFIGURACIÓN DE WHATSAPP WEB (LocalAuth)
 // ───────────────────────────────────────────────
 // La sesión se guarda en .wwebjs_auth/cardroid-bot; para forzar un nuevo escaneo, elimine esa carpeta o use el endpoint de reinicio.
-let client; // Declaración global
+let client; // Declaración global para evitar duplicados
 
 function createWhatsAppClient() {
   client = new Client({
@@ -1064,10 +1003,36 @@ function createWhatsAppClient() {
 
   client.on('auth_failure', msg => console.error('Error de autenticación:', msg));
   
-  // Ejemplo básico de lectura de mensajes
-  client.on('message', msg => {
+  // Handler para leer mensajes y procesar comandos
+  client.on('message', async (msg) => {
     console.log("Mensaje recibido:", msg.body);
-    // Aquí puede agregar lógica para comandos o respuestas
+    const from = msg.from; // Ej: "51931367147@c.us"
+    const lowerBody = msg.body.toLowerCase();
+    const adminId = adminNumber + '@c.us';
+    
+    // Si es mensaje del admin, procesar comandos (por ejemplo "oferta")
+    if (from === adminId) {
+      if (lowerBody === 'oferta') {
+        msg.reply("Comando 'oferta' recibido. Consulta el panel CRM para enviar promociones.");
+      }
+      // Se pueden agregar más comandos del admin aquí.
+    }
+    
+    // Si el mensaje contiene "deseo" y "financiamiento" (para registrar clientes en publifinanciamiento)
+    if (lowerBody.includes("deseo") && lowerBody.includes("financiamiento")) {
+      try {
+        const numeroCliente = from.split('@')[0];
+        const existe = await Publifinanciamiento.findOne({ numero: numeroCliente });
+        if (!existe) {
+          const nuevoPub = new Publifinanciamiento({ numero: numeroCliente, message: msg.body });
+          await nuevoPub.save();
+          console.log("Cliente agregado a Publifinanciamiento:", numeroCliente);
+        }
+        msg.reply("Gracias, hemos registrado tu solicitud de financiamiento.");
+      } catch (err) {
+        console.error("Error registrando en publifinanciamiento:", err);
+      }
+    }
   });
 
   client.initialize();
