@@ -418,42 +418,44 @@ async function generarGarantiaPDF(data) {
 // ENDPOINTS DE LA API Y CRM
 // ───────────────────────────────────────────────
 
-// Financiamiento: Formulario responsivo para crear financiamiento
-app.get('/financiamiento/crear', (req, res) => {
-  res.send(`
+// -------------------------
+// Panel de navegación común
+// -------------------------
+function renderPage(content) {
+  return `
   <!DOCTYPE html>
   <html lang="es">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Registrar Financiamiento</title>
-    <style>
-      body { font-family: Arial, sans-serif; background: #f7f7f7; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-      .container { background: #fff; padding: 20px; border-radius: 8px; width: 90%; max-width: 500px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-      h1 { text-align: center; }
-      input, button { width: 100%; padding: 10px; margin: 5px 0; border-radius: 4px; border: 1px solid #ccc; }
-      button { background-color: #007BFF; color: #fff; border: none; }
-      nav { margin-bottom: 20px; }
-    </style>
+    <title>Cardroid CRM</title>
   </head>
   <body>
     ${getNavBar()}
-    <div class="container">
-      <h1>Registrar Financiamiento</h1>
-      <form method="POST" action="/financiamiento/crear">
-        <input type="text" name="nombre" placeholder="Nombre completo" required>
-        <input type="text" name="numero" placeholder="Número de WhatsApp (sin '+')" required>
-        <input type="text" name="dni" placeholder="DNI" required>
-        <input type="text" name="placa" placeholder="Placa del vehículo" required>
-        <input type="number" step="0.01" name="montoTotal" placeholder="Monto total a financiar" required>
-        <input type="number" step="0.01" name="cuotaInicial" placeholder="Cuota inicial (opcional)">
-        <input type="number" name="numCuotas" placeholder="Número de cuotas restantes (opcional)" min="1">
-        <button type="submit">Registrar Financiamiento</button>
-      </form>
-    </div>
+    ${content}
   </body>
   </html>
-  `);
+  `;
+}
+
+// Financiamiento: Formulario para crear financiamiento
+app.get('/financiamiento/crear', (req, res) => {
+  const content = `
+  <div style="background:#fff; padding:20px; border-radius:8px; max-width:500px; margin:auto; box-shadow:0 2px 5px rgba(0,0,0,0.1);">
+    <h1 style="text-align:center;">Registrar Financiamiento</h1>
+    <form method="POST" action="/financiamiento/crear">
+      <input type="text" name="nombre" placeholder="Nombre completo" required>
+      <input type="text" name="numero" placeholder="Número de WhatsApp (sin '+')" required>
+      <input type="text" name="dni" placeholder="DNI" required>
+      <input type="text" name="placa" placeholder="Placa del vehículo" required>
+      <input type="number" step="0.01" name="montoTotal" placeholder="Monto total a financiar" required>
+      <input type="number" step="0.01" name="cuotaInicial" placeholder="Cuota inicial (opcional)">
+      <input type="number" name="numCuotas" placeholder="Número de cuotas restantes (opcional)" min="1">
+      <button type="submit">Registrar Financiamiento</button>
+    </form>
+  </div>
+  `;
+  res.send(renderPage(content));
 });
 
 // Financiamiento: Registro y envío del contrato PDF
@@ -531,36 +533,18 @@ app.post('/financiamiento/crear', async (req, res) => {
   }
 });
 
-// Financiamiento: Buscar y marcar cuotas
+// Financiamiento: Buscar y marcar cuotas (formulario)
 app.get('/financiamiento/buscar', (req, res) => {
-  res.send(`
-  <!DOCTYPE html>
-  <html lang="es">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Buscar Financiamiento</title>
-    <style>
-      body { font-family: Arial, sans-serif; background: #f7f7f7; display: flex; justify-content: center; align-items: center; padding: 20px; }
-      .container { background: #fff; padding: 20px; border-radius: 8px; max-width: 600px; margin: auto; }
-      h1 { text-align: center; }
-      input, button { width: 100%; padding: 10px; margin: 5px 0; border-radius: 4px; border: 1px solid #ccc; }
-      button { background-color: #28a745; color: #fff; border: none; }
-      nav { margin-bottom: 20px; }
-    </style>
-  </head>
-  <body>
-    ${getNavBar()}
-    <div class="container">
-      <h1>Buscar Financiamiento</h1>
-      <form method="GET" action="/financiamiento/buscar/result">
-        <input type="text" name="buscar" placeholder="Ingrese número o placa" required>
-        <button type="submit">Buscar</button>
-      </form>
-    </div>
-  </body>
-  </html>
-  `);
+  const content = `
+  <div style="background:#fff; padding:20px; border-radius:8px; max-width:600px; margin:auto;">
+    <h1 style="text-align:center;">Buscar Financiamiento</h1>
+    <form method="GET" action="/financiamiento/buscar/result">
+      <input type="text" name="buscar" placeholder="Ingrese número o placa" required>
+      <button type="submit">Buscar</button>
+    </form>
+  </div>
+  `;
+  res.send(renderPage(content));
 });
 
 app.get('/financiamiento/buscar/result', async (req, res) => {
@@ -576,29 +560,12 @@ app.get('/financiamiento/buscar/result', async (req, res) => {
       return res.send("No se encontró financiamiento para el criterio dado.");
     }
     let html = `
-    <!DOCTYPE html>
-    <html lang="es">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Resultado de Búsqueda</title>
-      <style>
-        body { font-family: Arial, sans-serif; background: #f7f7f7; padding: 20px; }
-        .container { background: #fff; padding: 20px; border-radius: 8px; max-width: 600px; margin: auto; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        th { background: #f2f2f2; }
-        button { padding: 10px 15px; background: #007BFF; color: #fff; border: none; border-radius: 4px; }
-      </style>
-    </head>
-    <body>
-      ${getNavBar()}
-      <div class="container">
+      <div style="background:#fff; padding:20px; border-radius:8px; max-width:600px; margin:auto;">
         <h2>Financiamientos encontrados</h2>
-        <table>
+        <table style="width:100%; border-collapse:collapse; margin-top:20px;">
           <tr>
-            <th>Nombre</th>
             <th>Número</th>
+            <th>Nombre</th>
             <th>DNI</th>
             <th>Placa</th>
             <th>Monto Total</th>
@@ -606,7 +573,7 @@ app.get('/financiamiento/buscar/result', async (req, res) => {
             <th>Acciones</th>
           </tr>`;
     financiamientos.forEach(fin => {
-      let cuotasHTML = "<table style='width:100%'><tr><th>#</th><th>Monto</th><th>Vencimiento</th><th>Pagada</th></tr>";
+      let cuotasHTML = "<table style='width:100%; border-collapse:collapse;'><tr><th>#</th><th>Monto</th><th>Vencimiento</th><th>Pagada</th></tr>";
       fin.cuotas.forEach((c, i) => {
         cuotasHTML += `<tr>
           <td>${i + 1}</td>
@@ -617,8 +584,8 @@ app.get('/financiamiento/buscar/result', async (req, res) => {
       });
       cuotasHTML += "</table>";
       html += `<tr>
-        <td>${fin.nombre}</td>
         <td>${fin.numero}</td>
+        <td>${fin.nombre}</td>
         <td>${fin.dni}</td>
         <td>${fin.placa}</td>
         <td>${fin.montoTotal}</td>
@@ -632,12 +599,8 @@ app.get('/financiamiento/buscar/result', async (req, res) => {
         </td>
       </tr>`;
     });
-    html += `
-        </table>
-      </div>
-    </body>
-    </html>`;
-    res.send(html);
+    html += `</table></div>`;
+    res.send(renderPage(html));
   } catch (err) {
     console.error("Error en búsqueda:", err);
     res.status(500).send("Error en la búsqueda");
@@ -645,473 +608,6 @@ app.get('/financiamiento/buscar/result', async (req, res) => {
 });
 
 // Transacción: Registrar gasto/venta
-app.post('/transaccion/crear', async (req, res) => {
-  try {
-    const { texto } = req.body;
-    await registrarTransaccionCSV(texto);
-    res.send("Transacción registrada.");
-  } catch (err) {
-    console.error("Error registrando transacción:", err);
-    res.status(500).send("Error registrando transacción");
-  }
-});
-
-// ───────────────────────────────────────────────
-// ENDPOINT PARA ENVÍO MASIVO DE OFERTAS (CRM)
-// ───────────────────────────────────────────────
-app.get('/crm/send-initial-offers', async (req, res) => {
-  try {
-    const clientes = await Cliente.find({});
-    const ofertas = cargarOfertas();
-    if (ofertas.length === 0) return res.send('No hay ofertas disponibles.');
-    const mensajeIntro = "En esta temporada de campaña escolar, entendemos la importancia de maximizar tus ahorros. Por ello, te ofrecemos descuentos exclusivos para que puedas optimizar y mejorar tu vehículo este mes. ¡Descubre nuestras ofertas especiales!";
-    const totalClientes = clientes.length;
-    const totalTime = 2 * 3600 * 1000; // 2 horas en milisegundos
-    const delayBetweenClients = totalClientes > 0 ? totalTime / totalClientes : 0;
-    console.log(`Enviando ofertas a ${totalClientes} clientes con un intervalo de ${(delayBetweenClients / 1000).toFixed(2)} segundos.`);
-    async function enviarOfertasCliente(cliente) {
-      const numero = `${cliente.numero}@c.us`;
-      console.log(`Enviando mensaje introductorio a ${cliente.numero}`);
-      await client.sendMessage(numero, mensajeIntro);
-      function getRandomPromos(promos, count) {
-        const shuffled = promos.slice().sort(() => 0.5 - Math.random());
-        return shuffled.slice(0, count);
-      }
-      const selectedOffers = getRandomPromos(ofertas, 8);
-      for (const oferta of selectedOffers) {
-        try {
-          console.log(`Enviando oferta a ${cliente.numero}: ${oferta.descripcion}`);
-          const response = await axios.get(oferta.url, { responseType: 'arraybuffer' });
-          const base64Image = Buffer.from(response.data, 'binary').toString('base64');
-          const mimeType = response.headers['content-type'];
-          const media = new MessageMedia(mimeType, base64Image, 'oferta.png');
-          await client.sendMessage(numero, media, { caption: oferta.descripcion });
-          await sleep(1500);
-        } catch (error) {
-          console.error(`Error al enviar oferta a ${cliente.numero}:`, error);
-        }
-      }
-      if (ofertas.length > 8) {
-        await client.sendMessage(numero, 'Si deseas ver más descuentos, escribe "marzo".');
-      }
-      await registrarInteraccion(cliente.numero, 'ofertaMasiva', 'Envío masivo inicial de ofertas de marzo');
-    }
-    async function enviarOfertasRecursivo(index) {
-      if (index >= clientes.length) return;
-      await enviarOfertasCliente(clientes[index]);
-      setTimeout(() => enviarOfertasRecursivo(index + 1), delayBetweenClients);
-    }
-    enviarOfertasRecursivo(0);
-    res.send('Proceso de envío de ofertas iniciales iniciado.');
-  } catch (err) {
-    console.error('Error en el envío masivo de ofertas:', err);
-    res.status(500).send('Error en el envío masivo de ofertas.');
-  }
-});
-
-// ───────────────────────────────────────────────
-// ENDPOINT PARA MENSAJES PERSONALIZADOS (CRM)
-// ───────────────────────────────────────────────
-app.get('/crm/send-custom', (req, res) => {
-  res.send(`
-  <!DOCTYPE html>
-  <html lang="es">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enviar Mensaje Personalizado</title>
-    <style>
-      body { font-family: Arial, sans-serif; background: #f7f7f7; display: flex; justify-content: center; align-items: center; padding: 20px; }
-      .container { background: #fff; padding: 20px; border-radius: 8px; width: 100%; max-width: 500px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-      h1 { text-align: center; }
-      input, textarea, button, select { width: 100%; padding: 10px; margin: 5px 0; border-radius: 4px; border: 1px solid #ccc; }
-      button { background-color: #007BFF; color: #fff; border: none; }
-      nav { margin-bottom: 20px; }
-    </style>
-  </head>
-  <body>
-    ${getNavBar()}
-    <div class="container">
-      <h1>Enviar Mensaje Personalizado</h1>
-      <form method="POST" action="/crm/send-custom">
-        <label for="collection">Selecciona la lista:</label>
-        <select name="collection" id="collection">
-          <option value="clientes">Clientes</option>
-          <option value="compradores">Compradores</option>
-          <option value="especifico">Específico</option>
-        </select>
-        <div id="numeroField" style="display:none;">
-          <label for="numero">Número (sin '51'):</label>
-          <input type="text" id="numero" name="numero">
-        </div>
-        <label for="message">Mensaje a enviar:</label>
-        <textarea name="message" id="message" rows="4"></textarea>
-        <label for="imageUrl">URL de imagen (opcional):</label>
-        <input type="text" id="imageUrl" name="imageUrl">
-        <label for="imageCaption">Descripción de imagen (opcional):</label>
-        <input type="text" id="imageCaption" name="imageCaption">
-        <button type="submit">Enviar Mensaje</button>
-      </form>
-      <script>
-        const collectionSelect = document.getElementById('collection');
-        const numeroField = document.getElementById('numeroField');
-        collectionSelect.addEventListener('change', () => {
-          if(collectionSelect.value === 'especifico'){
-            numeroField.style.display = 'block';
-          } else {
-            numeroField.style.display = 'none';
-          }
-        });
-      </script>
-    </div>
-  </body>
-  </html>
-  `);
-});
-
-app.post('/crm/send-custom', async (req, res) => {
-  const { collection, message: customMessage, numero, imageUrl, imageCaption } = req.body;
-  let targets = [];
-  try {
-    if (collection === 'especifico') {
-      if (!numero) return res.send("Debes ingresar un número para enviar el mensaje específico.");
-      let target = numero.trim();
-      if (!target.startsWith('51')) {
-        target = '51' + target;
-      }
-      targets.push(target + '@c.us');
-    } else if (collection === 'clientes') {
-      const docs = await Cliente.find({});
-      targets = docs.map(doc => doc.numero + '@c.us');
-    } else if (collection === 'compradores') {
-      const docs = await Comprador.find({});
-      targets = docs.map(doc => doc.numero + '@c.us');
-    } else {
-      return res.send("Colección inválida");
-    }
-    console.debug("Destinatarios:", targets);
-    for (const t of targets) {
-      if (imageUrl && imageUrl.trim() !== "") {
-        try {
-          const response = await axios.get(imageUrl.trim(), { responseType: 'arraybuffer' });
-          const base64Image = Buffer.from(response.data, 'binary').toString('base64');
-          const mimeType = response.headers['content-type'];
-          const media = new MessageMedia(mimeType, base64Image, 'imagen.png');
-          console.debug("Enviando imagen a:", t);
-          await client.sendMessage(t, media, { caption: imageCaption || "" });
-          await sleep(1000);
-        } catch (e) {
-          console.error("Error enviando imagen a", t, e);
-        }
-      }
-      console.debug("Enviando mensaje de texto a:", t);
-      await client.sendMessage(t, customMessage);
-      await sleep(1000);
-    }
-    res.send(`Mensaje personalizado enviado a ${targets.length} destinatarios.`);
-  } catch (e) {
-    console.error(e);
-    res.send("Error al enviar mensajes: " + e);
-  }
-});
-
-// ───────────────────────────────────────────────
-// ENDPOINT PARA EXPORTAR CSV DE TRANSACCIONES
-// ───────────────────────────────────────────────
-app.get('/crm/export-transactions', (req, res) => {
-  if (fs.existsSync(csvFilePath)) {
-    res.download(csvFilePath, 'transacciones.csv');
-  } else {
-    res.status(404).send('No se encontró el archivo de transacciones.');
-  }
-});
-
-// ───────────────────────────────────────────────
-// ENDPOINT PARA VISUALIZAR EL QR
-// ───────────────────────────────────────────────
-app.get('/qr', (req, res) => {
-  const qrPath = path.join(__dirname, 'whatsapp-qr.png');
-  if (fs.existsSync(qrPath)) {
-    res.sendFile(qrPath);
-  } else {
-    res.status(404).send('El archivo QR no existe o aún no se ha generado.');
-  }
-});
-
-// ───────────────────────────────────────────────
-// DASHBOARD CRM RESPONSIVO
-// ───────────────────────────────────────────────
-app.get('/crm', async (req, res) => {
-  try {
-    const totalClientes = await Cliente.countDocuments({});
-    const totalOfertasSolicitadas = await Interaccion.countDocuments({ tipo: "solicitudOferta" });
-    const totalRespuestasOferta = await Interaccion.countDocuments({ tipo: "respuestaOferta" });
-    const totalSolicitudesInfo = await Interaccion.countDocuments({ tipo: "solicitudInfo" });
-    const clientes = await Cliente.find({}).select('numero lastInteraction -_id').lean();
-    const html = `
-    <!DOCTYPE html>
-    <html lang="es">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>CRM Dashboard</title>
-      <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background: #f7f7f7; }
-        .container { max-width: 1000px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; }
-        .stat { margin-bottom: 10px; font-size: 18px; }
-        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        th { background-color: #f2f2f2; }
-        button { padding: 10px 20px; font-size: 16px; margin: 5px; background: #007BFF; color: #fff; border: none; border-radius: 4px; }
-        @media (max-width: 600px) { .stat, table, button { font-size: 14px; } }
-      </style>
-    </head>
-    <body>
-      ${getNavBar()}
-      <div class="container">
-        <h1>CRM Dashboard</h1>
-        <div class="stat">Clientes registrados: ${totalClientes}</div>
-        <div class="stat">Solicitudes de oferta: ${totalOfertasSolicitadas}</div>
-        <div class="stat">Respuestas a ofertas: ${totalRespuestasOferta}</div>
-        <div class="stat">Solicitudes de información: ${totalSolicitudesInfo}</div>
-        <div>
-          <button onclick="location.href='/crm/send-initial-offers'">Enviar Oferta a Todos</button>
-          <button onclick="location.href='/crm/send-custom'">Enviar Mensaje Personalizado</button>
-          <button onclick="location.href='/crm/export-transactions'">Exportar Transacciones</button>
-        </div>
-        <h2>Lista de Clientes</h2>
-        <table>
-          <tr>
-            <th>Número</th>
-            <th>Última Interacción</th>
-          </tr>
-          ${clientes.map(cliente => `<tr><td>${cliente.numero}</td><td>${new Date(cliente.lastInteraction).toLocaleString()}</td></tr>`).join('')}
-        </table>
-      </div>
-    </body>
-    </html>
-    `;
-    res.send(html);
-  } catch (err) {
-    console.error('Error en el dashboard:', err);
-    res.status(500).send('Error generando el dashboard');
-  }
-});
-
-// ───────────────────────────────────────────────
-// RECORDATORIOS
-// ───────────────────────────────────────────────
-// Recordatorio diario de garantías (08:00 AM GMT-5)
-schedule.scheduleJob('0 8 * * *', async function() {
-  const today = getCurrentDateGMTMinus5();
-  const targetDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
-  const targetStr = formatDateDDMMYYYY(targetDate);
-  console.debug(`Recordatorio: Buscando garantías que expiran el ${targetStr}`);
-  const expiringGuarantees = await Comprador.find({ fechaExpiracion: targetStr });
-  expiringGuarantees.forEach(async guarantee => {
-    console.debug(`Enviando recordatorio a ${guarantee.numero} para ${guarantee.producto}`);
-    await client.sendMessage(
-      guarantee.numero + '@c.us',
-      `Recordatorio: Tu garantía para ${guarantee.producto}${guarantee.placa ? ' (Placa: ' + guarantee.placa + ')' : ''} expira el ${guarantee.fechaExpiracion}.`
-    );
-  });
-});
-
-// Recordatorio de cuotas vencientes (08:30 AM GMT-5)
-schedule.scheduleJob('30 8 * * *', async function() {
-  const today = getCurrentDateGMTMinus5();
-  const todayStr = formatDateDDMMYYYY(today);
-  console.debug(`Recordatorio cuotas: Buscando cuotas vencientes para hoy ${todayStr}`);
-  const financiamientos = await Financiamiento.find({});
-  for (const fin of financiamientos) {
-    for (const [index, cuota] of fin.cuotas.entries()) {
-      if (!cuota.pagada && cuota.vencimiento === todayStr) {
-        const msg = `Recordatorio: Tu cuota ${index + 1} para ${fin.producto} vence hoy (${cuota.vencimiento}). Por favor realiza tu pago.`;
-        let numberId;
-        try {
-          numberId = await client.getNumberId(fin.numero);
-          if (!numberId) numberId = { _serialized: fin.numero + '@c.us' };
-          await client.sendMessage(numberId._serialized, msg);
-          console.log(`Recordatorio enviado a ${fin.numero} para cuota ${index + 1}`);
-        } catch (err) {
-          console.error(`Error enviando recordatorio para ${fin.numero}:`, err);
-        }
-      }
-    }
-  }
-});
-
-// ───────────────────────────────────────────────
-// CONFIGURACIÓN DE WHATSAPP WEB (LocalAuth)
-// ───────────────────────────────────────────────
-// La sesión se guarda en .wwebjs_auth/cardroid-bot; para forzar un nuevo escaneo, elimina esa carpeta o usa el endpoint de reinicio.
-let client; // Declaración global única
-
-function createWhatsAppClient() {
-  client = new Client({
-    authStrategy: new LocalAuth({ clientId: 'cardroid-bot' }),
-    puppeteer: {
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu',
-        '--no-first-run'
-      ]
-    }
-  });
-
-  client.on('qr', async (qrCode) => {
-    console.debug('QR recibido.');
-    try {
-      await QRCode.toFile('whatsapp-qr.png', qrCode);
-      console.debug('QR generado en "whatsapp-qr.png".');
-    } catch (err) {
-      console.error('Error generando QR:', err);
-    }
-  });
-
-  client.on('ready', () => {
-    console.debug('WhatsApp Bot listo para recibir mensajes!');
-  });
-
-  client.on('auth_failure', msg => console.error('Error de autenticación:', msg));
-
-  // Manejador de mensajes: procesa comandos del admin, solicitudes de financiamiento y más
-  client.on('message', async (msg) => {
-    console.log("Mensaje recibido:", msg.body);
-    const from = msg.from; // Ej: "51931367147@c.us"
-    const lowerBody = msg.body.toLowerCase();
-    const adminId = adminNumber + '@c.us';
-
-    // Comandos del admin
-    if (from === adminId) {
-      if (lowerBody === 'oferta') {
-        msg.reply("Comando 'oferta' recibido. Consulta el panel CRM para enviar promociones.");
-      }
-      // Se pueden agregar otros comandos del admin aquí...
-    }
-
-    // Si el mensaje contiene “deseo” y “financiamiento”, agregar a publifinanciamiento
-    if (lowerBody.includes("deseo") && lowerBody.includes("financiamiento")) {
-      try {
-        const numeroCliente = from.split('@')[0];
-        // Usamos updateOne con upsert para evitar errores de duplicado
-        await Publifinanciamiento.updateOne(
-          { numero: numeroCliente },
-          { $set: { message: msg.body, createdAt: new Date() } },
-          { upsert: true }
-        );
-        console.log("Cliente agregado o actualizado en publifinanciamiento:", numeroCliente);
-        msg.reply("Gracias, hemos registrado tu solicitud de financiamiento.");
-      } catch (err) {
-        console.error("Error registrando en publifinanciamiento:", err);
-      }
-    }
-
-    // Aquí se pueden agregar otros manejadores para mensajes (por ejemplo, para comandos de 'oferta', 'garantía', etc.)
-  });
-
-  client.initialize();
-}
-
-// Inicializamos el cliente de WhatsApp al arrancar el servidor
-createWhatsAppClient();
-
-// Endpoint para forzar reinicio de la sesión de WhatsApp
-app.get('/whatsapp/restart', async (req, res) => {
-  try {
-    console.log('Forzando reinicio de la sesión de WhatsApp...');
-    if (client) {
-      await client.destroy();
-      console.log('Cliente destruido.');
-    }
-    const sessionPath = path.join(__dirname, '.wwebjs_auth', 'cardroid-bot');
-    if (fs.existsSync(sessionPath)) {
-      fs.rmSync(sessionPath, { recursive: true, force: true });
-      console.log('Carpeta de sesión eliminada:', sessionPath);
-    }
-    createWhatsAppClient();
-    res.send("Sesión reiniciada. Revisa /qr para escanear el nuevo código, si no se autogenera.");
-  } catch (err) {
-    console.error('Error reiniciando la sesión:', err);
-    res.status(500).send("Error reiniciando la sesión");
-  }
-});
-
-// ───────────────────────────────────────────────
-// NUEVO ENDPOINT: GENERAR CERTIFICADO DE GARANTÍA
-// ───────────────────────────────────────────────
-app.get('/garantia/crear', (req, res) => {
-  res.send(`
-  <!DOCTYPE html>
-  <html lang="es">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generar Garantía</title>
-    <style>
-      body { font-family: Arial, sans-serif; background: #f7f7f7; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-      .container { background: #fff; padding: 20px; border-radius: 8px; width: 90%; max-width: 500px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-      h1 { text-align: center; }
-      input, button { width: 100%; padding: 10px; margin: 5px 0; border-radius: 4px; border: 1px solid #ccc; }
-      button { background-color: #007BFF; color: #fff; border: none; }
-      nav { margin-bottom: 20px; }
-    </style>
-  </head>
-  <body>
-    ${getNavBar()}
-    <div class="container">
-      <h1>Generar Certificado de Garantía</h1>
-      <form method="POST" action="/garantia/crear">
-        <input type="text" name="numeroCelular" placeholder="Número de contacto (sin '+')" required>
-        <input type="text" name="fechaInstalacion" placeholder="Fecha de instalación (DD/MM/YYYY)" required>
-        <input type="text" name="placa" placeholder="Placa del vehículo (opcional)">
-        <button type="submit">Generar Garantía</button>
-      </form>
-    </div>
-  </body>
-  </html>
-  `);
-});
-
-app.post('/garantia/crear', async (req, res) => {
-  try {
-    const { numeroCelular, fechaInstalacion, placa } = req.body;
-    console.debug("Datos recibidos para garantía:", req.body);
-    const garantiaData = { numeroCelular, fechaInstalacion, placa };
-    const pdfBuffer = await generarGarantiaPDF(garantiaData);
-    
-    let numberId;
-    try {
-      numberId = await client.getNumberId(numeroCelular);
-      console.debug('getNumberId en garantía:', numberId);
-    } catch (err) {
-      console.error('Error en getNumberId al enviar garantía:', err);
-    }
-    if (!numberId) {
-      numberId = { _serialized: numeroCelular + '@c.us' };
-      console.warn('Usando fallback para número:', numberId._serialized);
-    }
-    const pdfMedia = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), 'CertificadoGarantia.pdf');
-    try {
-      await client.sendMessage(numberId._serialized, pdfMedia, { caption: 'Adjunto: Certificado de Garantía' });
-    } catch (e) {
-      console.error('Error enviando certificado de garantía:', e);
-      throw e;
-    }
-    res.send("Certificado de garantía generado y enviado.");
-  } catch (err) {
-    console.error("Error generando certificado de garantía:", err);
-    res.status(500).send("Error generando certificado de garantía");
-  }
-});
-
-// ───────────────────────────────────────────────
-// ENDPOINT PARA REGISTRAR TRANSACCIONES (gasto/venta)
-// ───────────────────────────────────────────────
 app.post('/transaccion/crear', async (req, res) => {
   try {
     const { texto } = req.body;
@@ -1169,10 +665,10 @@ app.get('/crm/send-initial-offers', async (req, res) => {
       setTimeout(() => enviarOfertasRecursivo(index + 1), delayBetweenClients);
     }
     enviarOfertasRecursivo(0);
-    res.send('Proceso de envío de ofertas iniciales iniciado.');
+    res.send("Proceso de envío de ofertas iniciales iniciado.");
   } catch (err) {
-    console.error('Error en el envío masivo de ofertas:', err);
-    res.status(500).send('Error en el envío masivo de ofertas.');
+    console.error("Error en el envío masivo de ofertas:", err);
+    res.status(500).send("Error en el envío masivo de ofertas.");
   }
 });
 
@@ -1180,60 +676,42 @@ app.get('/crm/send-initial-offers', async (req, res) => {
 // ENDPOINT PARA MENSAJES PERSONALIZADOS (CRM)
 // ───────────────────────────────────────────────
 app.get('/crm/send-custom', (req, res) => {
-  res.send(`
-  <!DOCTYPE html>
-  <html lang="es">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enviar Mensaje Personalizado</title>
-    <style>
-      body { font-family: Arial, sans-serif; background: #f7f7f7; display: flex; justify-content: center; align-items: center; padding: 20px; }
-      .container { background: #fff; padding: 20px; border-radius: 8px; width: 100%; max-width: 500px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-      h1 { text-align: center; }
-      input, textarea, button, select { width: 100%; padding: 10px; margin: 5px 0; border-radius: 4px; border: 1px solid #ccc; }
-      button { background-color: #007BFF; color: #fff; border: none; }
-      nav { margin-bottom: 20px; }
-    </style>
-  </head>
-  <body>
-    ${getNavBar()}
-    <div class="container">
-      <h1>Enviar Mensaje Personalizado</h1>
-      <form method="POST" action="/crm/send-custom">
-        <label for="collection">Selecciona la lista:</label>
-        <select name="collection" id="collection">
-          <option value="clientes">Clientes</option>
-          <option value="compradores">Compradores</option>
-          <option value="especifico">Específico</option>
-        </select>
-        <div id="numeroField" style="display:none;">
-          <label for="numero">Número (sin '51'):</label>
-          <input type="text" id="numero" name="numero">
-        </div>
-        <label for="message">Mensaje a enviar:</label>
-        <textarea name="message" id="message" rows="4"></textarea>
-        <label for="imageUrl">URL de imagen (opcional):</label>
-        <input type="text" id="imageUrl" name="imageUrl">
-        <label for="imageCaption">Descripción de imagen (opcional):</label>
-        <input type="text" id="imageCaption" name="imageCaption">
-        <button type="submit">Enviar Mensaje</button>
-      </form>
-      <script>
-        const collectionSelect = document.getElementById('collection');
-        const numeroField = document.getElementById('numeroField');
-        collectionSelect.addEventListener('change', () => {
-          if(collectionSelect.value === 'especifico'){
-            numeroField.style.display = 'block';
-          } else {
-            numeroField.style.display = 'none';
-          }
-        });
-      </script>
-    </div>
-  </body>
-  </html>
-  `);
+  const content = `
+  <div style="background:#fff; padding:20px; border-radius:8px; max-width:500px; margin:auto; box-shadow:0 2px 5px rgba(0,0,0,0.1);">
+    <h1 style="text-align:center;">Enviar Mensaje Personalizado</h1>
+    <form method="POST" action="/crm/send-custom">
+      <label>Selecciona la lista:</label>
+      <select name="collection" id="collection">
+        <option value="clientes">Clientes</option>
+        <option value="compradores">Compradores</option>
+        <option value="especifico">Específico</option>
+      </select>
+      <div id="numeroField" style="display:none;">
+        <label>Número (sin '51'):</label>
+        <input type="text" id="numero" name="numero">
+      </div>
+      <label>Mensaje a enviar:</label>
+      <textarea name="message" id="message" rows="4"></textarea>
+      <label>URL de imagen (opcional):</label>
+      <input type="text" id="imageUrl" name="imageUrl">
+      <label>Descripción de imagen (opcional):</label>
+      <input type="text" id="imageCaption" name="imageCaption">
+      <button type="submit">Enviar Mensaje</button>
+    </form>
+    <script>
+      const collectionSelect = document.getElementById('collection');
+      const numeroField = document.getElementById('numeroField');
+      collectionSelect.addEventListener('change', () => {
+        if(collectionSelect.value === 'especifico'){
+          numeroField.style.display = 'block';
+        } else {
+          numeroField.style.display = 'none';
+        }
+      });
+    </script>
+  </div>
+  `;
+  res.send(renderPage(content));
 });
 
 app.post('/crm/send-custom', async (req, res) => {
@@ -1306,112 +784,72 @@ app.get('/qr', (req, res) => {
 });
 
 // ───────────────────────────────────────────────
-// DASHBOARD CRM RESPONSIVO
+// NUEVO ENDPOINT: GENERAR CERTIFICADO DE GARANTÍA
 // ───────────────────────────────────────────────
-app.get('/crm', async (req, res) => {
+app.get('/garantia/crear', (req, res) => {
+  const content = `
+  <div style="background:#fff; padding:20px; border-radius:8px; max-width:500px; margin:auto; box-shadow:0 2px 5px rgba(0,0,0,0.1);">
+    <h1 style="text-align:center;">Generar Certificado de Garantía</h1>
+    <form method="POST" action="/garantia/crear">
+      <input type="text" name="numeroCelular" placeholder="Número de contacto (sin '+')" required>
+      <input type="text" name="fechaInstalacion" placeholder="Fecha de instalación (DD/MM/YYYY)" required>
+      <input type="text" name="placa" placeholder="Placa del vehículo (opcional)">
+      <button type="submit">Generar Garantía</button>
+    </form>
+  </div>
+  `;
+  res.send(renderPage(content));
+});
+
+app.post('/garantia/crear', async (req, res) => {
   try {
-    const totalClientes = await Cliente.countDocuments({});
-    const totalOfertasSolicitadas = await Interaccion.countDocuments({ tipo: "solicitudOferta" });
-    const totalRespuestasOferta = await Interaccion.countDocuments({ tipo: "respuestaOferta" });
-    const totalSolicitudesInfo = await Interaccion.countDocuments({ tipo: "solicitudInfo" });
-    const clientes = await Cliente.find({}).select('numero lastInteraction -_id').lean();
-    const html = `
-    <!DOCTYPE html>
-    <html lang="es">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>CRM Dashboard</title>
-      <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background: #f7f7f7; }
-        .container { max-width: 1000px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; }
-        .stat { margin-bottom: 10px; font-size: 18px; }
-        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
-        th { background-color: #f2f2f2; }
-        button { padding: 10px 20px; font-size: 16px; margin: 5px; background: #007BFF; color: #fff; border: none; border-radius: 4px; }
-        @media (max-width: 600px) { .stat, table, button { font-size: 14px; } }
-      </style>
-    </head>
-    <body>
-      ${getNavBar()}
-      <div class="container">
-        <h1>CRM Dashboard</h1>
-        <div class="stat">Clientes registrados: ${totalClientes}</div>
-        <div class="stat">Solicitudes de oferta: ${totalOfertasSolicitadas}</div>
-        <div class="stat">Respuestas a ofertas: ${totalRespuestasOferta}</div>
-        <div class="stat">Solicitudes de información: ${totalSolicitudesInfo}</div>
-        <div>
-          <button onclick="location.href='/crm/send-initial-offers'">Enviar Oferta a Todos</button>
-          <button onclick="location.href='/crm/send-custom'">Enviar Mensaje Personalizado</button>
-          <button onclick="location.href='/crm/export-transactions'">Exportar Transacciones</button>
-        </div>
-        <h2>Lista de Clientes</h2>
-        <table>
-          <tr>
-            <th>Número</th>
-            <th>Última Interacción</th>
-          </tr>
-          ${clientes.map(cliente => `<tr><td>${cliente.numero}</td><td>${new Date(cliente.lastInteraction).toLocaleString()}</td></tr>`).join('')}
-        </table>
-      </div>
-    </body>
-    </html>
-    `;
-    res.send(html);
+    const { numeroCelular, fechaInstalacion, placa } = req.body;
+    console.debug("Datos recibidos para garantía:", req.body);
+    const garantiaData = { numeroCelular, fechaInstalacion, placa };
+    const pdfBuffer = await generarGarantiaPDF(garantiaData);
+    
+    let numberId;
+    try {
+      numberId = await client.getNumberId(numeroCelular);
+      console.debug('getNumberId en garantía:', numberId);
+    } catch (err) {
+      console.error('Error en getNumberId al enviar garantía:', err);
+    }
+    if (!numberId) {
+      numberId = { _serialized: numeroCelular + '@c.us' };
+      console.warn('Usando fallback para número:', numberId._serialized);
+    }
+    const pdfMedia = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), 'CertificadoGarantia.pdf');
+    try {
+      await client.sendMessage(numberId._serialized, pdfMedia, { caption: 'Adjunto: Certificado de Garantía' });
+    } catch (e) {
+      console.error('Error enviando certificado de garantía:', e);
+      throw e;
+    }
+    res.send("Certificado de garantía generado y enviado.");
   } catch (err) {
-    console.error('Error en el dashboard:', err);
-    res.status(500).send('Error generando el dashboard');
+    console.error("Error generando certificado de garantía:", err);
+    res.status(500).send("Error generando certificado de garantía");
   }
 });
 
 // ───────────────────────────────────────────────
-// RECORDATORIOS
+// ENDPOINTS PARA OTRAS OPERACIONES (Transacción, etc.)
 // ───────────────────────────────────────────────
-// Recordatorio diario de garantías (08:00 AM GMT-5)
-schedule.scheduleJob('0 8 * * *', async function() {
-  const today = getCurrentDateGMTMinus5();
-  const targetDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
-  const targetStr = formatDateDDMMYYYY(targetDate);
-  console.debug(`Recordatorio: Buscando garantías que expiran el ${targetStr}`);
-  const expiringGuarantees = await Comprador.find({ fechaExpiracion: targetStr });
-  expiringGuarantees.forEach(async guarantee => {
-    console.debug(`Enviando recordatorio a ${guarantee.numero} para ${guarantee.producto}`);
-    await client.sendMessage(
-      guarantee.numero + '@c.us',
-      `Recordatorio: Tu garantía para ${guarantee.producto}${guarantee.placa ? ' (Placa: ' + guarantee.placa + ')' : ''} expira el ${guarantee.fechaExpiracion}.`
-    );
-  });
-});
-
-// Recordatorio de cuotas vencientes (08:30 AM GMT-5)
-schedule.scheduleJob('30 8 * * *', async function() {
-  const today = getCurrentDateGMTMinus5();
-  const todayStr = formatDateDDMMYYYY(today);
-  console.debug(`Recordatorio cuotas: Buscando cuotas vencientes para hoy ${todayStr}`);
-  const financiamientos = await Financiamiento.find({});
-  for (const fin of financiamientos) {
-    for (const [index, cuota] of fin.cuotas.entries()) {
-      if (!cuota.pagada && cuota.vencimiento === todayStr) {
-        const msg = `Recordatorio: Tu cuota ${index + 1} para ${fin.producto} vence hoy (${cuota.vencimiento}). Por favor realiza tu pago.`;
-        let numberId;
-        try {
-          numberId = await client.getNumberId(fin.numero);
-          if (!numberId) numberId = { _serialized: fin.numero + '@c.us' };
-          await client.sendMessage(numberId._serialized, msg);
-          console.log(`Recordatorio enviado a ${fin.numero} para cuota ${index + 1}`);
-        } catch (err) {
-          console.error(`Error enviando recordatorio para ${fin.numero}:`, err);
-        }
-      }
-    }
+app.post('/transaccion/crear', async (req, res) => {
+  try {
+    const { texto } = req.body;
+    await registrarTransaccionCSV(texto);
+    res.send("Transacción registrada.");
+  } catch (err) {
+    console.error("Error registrando transacción:", err);
+    res.status(500).send("Error registrando transacción");
   }
 });
 
 // ───────────────────────────────────────────────
 // CONFIGURACIÓN DE WHATSAPP WEB (LocalAuth)
 // ───────────────────────────────────────────────
-// La sesión se guarda en .wwebjs_auth/cardroid-bot; para forzar un nuevo escaneo, elimina esa carpeta o usa el endpoint de reinicio.
 let client; // Declaración global única
 
 function createWhatsAppClient() {
@@ -1458,10 +896,10 @@ function createWhatsAppClient() {
       if (lowerBody === 'oferta') {
         msg.reply("Comando 'oferta' recibido. Consulta el panel CRM para enviar promociones.");
       }
-      // Otros comandos del admin se pueden agregar aquí...
+      // Se pueden agregar más comandos del admin aquí...
     }
 
-    // Si el mensaje contiene “deseo” y “financiamiento”, agregar a publifinanciamiento (usando upsert para evitar duplicados)
+    // Si el mensaje contiene “deseo” y “financiamiento”, agregar a publifinanciamiento (con upsert)
     if (lowerBody.includes("deseo") && lowerBody.includes("financiamiento")) {
       try {
         const numeroCliente = from.split('@')[0];
