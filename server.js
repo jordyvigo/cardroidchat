@@ -15,7 +15,7 @@ app.use('/', require('./routes/crm'));
 app.use('/', require('./routes/financiamiento'));
 app.use('/', require('./routes/garantia'));
 app.use('/', require('./routes/whatsapp'));
-app.use('/', require('./routes/sendCustom'));  // Agregamos la ruta para sendCustom
+app.use('/sendCustom', require('./routes/sendCustom'));  // Agregamos la ruta para sendCustom
 
 // Iniciar tareas programadas
 require('./schedules');
