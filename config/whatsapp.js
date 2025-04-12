@@ -1,5 +1,5 @@
 // config/whatsapp.js
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const QRCode = require('qrcode');
 const path = require('path');
 
@@ -37,4 +37,24 @@ client.on('auth_failure', msg => console.error('Error de autenticación:', msg))
 
 client.initialize();
 
-module.exports = client;
+// Función para enviar un mensaje de texto
+async function sendWhatsAppMessage(to, message) {
+  // Asegurarse de que el número tenga el sufijo '@c.us'
+  const formattedTo = to.includes('@c.us') ? to : `${to}@c.us`;
+  return client.sendMessage(formattedTo, message);
+}
+
+// Función para enviar una imagen con caption
+async function sendWhatsAppMedia(to, imageUrl, caption) {
+  const formattedTo = to.includes('@c.us') ? to : `${to}@c.us`;
+  // Descarga el medio desde la URL y envíalo
+  const media = await MessageMedia.fromUrl(imageUrl);
+  return client.sendMessage(formattedTo, media, { caption });
+}
+
+// Exportamos el client y las funciones de envío para que puedan ser usadas en otros módulos
+module.exports = {
+  client,
+  sendWhatsAppMessage,
+  sendWhatsAppMedia
+};
