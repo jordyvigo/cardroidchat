@@ -10,17 +10,15 @@ const {
   getNavBar, 
   sleep 
 } = require('../helpers/utilities');
-// Importamos la función para generar el contrato PDF.
-// Nota: Si en pdfGenerator el módulo exporta la función directamente, no uses destructuración.
-const generarContratoPDF = require('../helpers/pdfGenerator');
-
+// Importamos la función generarContratoPDF desde pdfGenerator.js (ver exportación en ese módulo)
+const { generarContratoPDF } = require('../helpers/pdfGenerator');
 // Extraemos el cliente real
 const { client } = require('../config/whatsapp');
 const { MessageMedia } = require('whatsapp-web.js');
 
 /**
  * GET /financiamiento/crear
- * Renderiza el formulario para registrar financiamiento.
+ * Renderiza el formulario HTML para registrar un financiamiento.
  */
 router.get('/financiamiento/crear', (req, res) => {
   const html = `
@@ -62,14 +60,14 @@ router.get('/financiamiento/crear', (req, res) => {
 
 /**
  * POST /financiamiento/crear
- * Procesa el registro del financiamiento, genera el contrato PDF y lo envía vía WhatsApp.
+ * Procesa el registro del financiamiento, genera el contrato PDF con el formato solicitado y lo envía vía WhatsApp.
+ * Se instruye al cliente que responda "si acepto" para aceptar los términos y condiciones (esa respuesta se registrará en la base de datos).
  */
 router.post('/financiamiento/crear', async (req, res) => {
   try {
     const { nombre, numero, dni, placa, montoTotal, cuotaInicial, numCuotas } = req.body;
     console.log("Datos recibidos para financiamiento:", req.body);
     
-    // Fecha de inicio según la zona horaria "America/Lima"
     const fechaInicio = formatDateDDMMYYYY(getCurrentDateGMTMinus5());
     const cuotaIni = cuotaInicial ? parseFloat(cuotaInicial) : 350;
     const montoTotalNum = parseFloat(montoTotal);
@@ -87,22 +85,24 @@ router.post('/financiamiento/crear', async (req, res) => {
     const cuotas = fechasCuotas.map(fecha => ({ monto: cuotaValor, vencimiento: fecha, pagada: false }));
     const fechaFin = fechasCuotas[fechasCuotas.length - 1];
     
-    // Crear y guardar el documento de financiamiento en la BD
+    // Crear y guardar el registro de financiamiento en la base de datos
     const financiamiento = new Financiamiento({
       nombre,
-      numero,  // se espera el número sin '+'
+      numero, // se espera el número sin '+'
       dni,
       placa,
       montoTotal: montoTotalNum,
       cuotaInicial: cuotaIni,
       cuotas,
       fechaInicio,
-      fechaFin
+      fechaFin,
+      // Campo para registrar la aceptación del contrato; inicialmente es false
+      aceptacion: false
     });
     await financiamiento.save();
     console.log("Financiamiento guardado para el número:", numero);
     
-    // Generar el contrato PDF usando la función importar directamente
+    // Generar el contrato PDF con el nuevo formato
     const pdfBuffer = await generarContratoPDF({
       nombre_cliente: nombre,
       dni_cliente: dni,
@@ -121,16 +121,55 @@ router.post('/financiamiento/crear', async (req, res) => {
     const chatId = numero.includes('@c.us') ? numero : `${numero}@c.us`;
     const pdfMedia = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), 'ContratoFinanciamiento.pdf');
     
+    // Instrucción para aceptación incluida en el mensaje
+    const mensajeContrato = `Adjunto: Contrato de Financiamiento Directo con Opción a Compra.
+
+Para aceptar los términos y condiciones, responda "si acepto" a este mensaje. Su respuesta quedará registrada en nuestra base de datos.`;
+    
     try {
-      await client.sendMessage(chatId, pdfMedia, { caption: 'Adjunto: Contrato de Financiamiento y cronograma de pagos' });
+      await client.sendMessage(chatId, pdfMedia, { caption: mensajeContrato });
     } catch (e) {
       console.error('Error enviando contrato:', e);
       throw e;
     }
-    res.send("Financiamiento registrado y contrato enviado.");
+    res.send("Financiamiento registrado y contrato enviado. Se espera confirmación de aceptación.");
   } catch (err) {
     console.error("Error registrando financiamiento:", err);
     res.status(500).send("Error registrando financiamiento");
+  }
+});
+
+/**
+ * POST /financiamiento/aceptar
+ * Endpoint para registrar la aceptación de los términos y condiciones del contrato.
+ * Se espera recibir en el body: { numero, respuesta }.
+ * Si la respuesta es "si acepto" (ignorando mayúsculas/minúsculas), se actualiza el registro del financiamiento.
+ */
+router.post('/financiamiento/aceptar', async (req, res) => {
+  try {
+    const { numero, respuesta } = req.body;
+    if (!numero || !respuesta) {
+      return res.status(400).send("Se requiere 'numero' y 'respuesta'.");
+    }
+    
+    if (respuesta.trim().toLowerCase() !== 'si acepto') {
+      return res.status(400).send("La respuesta no es válida. Debe responder 'si acepto' para confirmar.");
+    }
+    
+    // Buscar el financiamiento pendiente de aceptación para ese número (último registrado)
+    const financiamiento = await Financiamiento.findOne({ numero, aceptacion: false }).sort({ fechaInicio: -1 });
+    if (!financiamiento) {
+      return res.status(404).send("No se encontró un financiamiento pendiente de aceptación para ese número.");
+    }
+    
+    financiamiento.aceptacion = true;
+    financiamiento.fechaAceptacion = new Date();
+    await financiamiento.save();
+    
+    res.send("Aceptación registrada exitosamente.");
+  } catch (err) {
+    console.error("Error registrando aceptación:", err);
+    res.status(500).send("Error registrando aceptación");
   }
 });
 
@@ -295,8 +334,8 @@ router.post('/financiamiento/marcar', async (req, res) => {
       mensaje += "Has completado todos tus pagos. ¡Felicitaciones!";
     }
     
-    // Formatea el número para WhatsApp
     const chatId = numero.includes('@c.us') ? numero : `${numero}@c.us`;
+    
     try {
       await client.sendMessage(chatId, mensaje);
       res.send("Cuota marcada como pagada y mensaje enviado.");

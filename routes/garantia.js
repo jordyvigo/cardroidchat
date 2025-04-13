@@ -5,6 +5,8 @@ const { generarGarantiaPDF } = require('../helpers/pdfGenerator');
 const { MessageMedia } = require('whatsapp-web.js');
 // Extraemos el cliente real mediante desestructuración
 const { client } = require('../config/whatsapp');
+// Importa el modelo Comprador para guardar los clientes en la colección "compradores"
+const Comprador = require('../models/Comprador');
 
 router.get('/garantia/crear', (req, res) => {
   const html = `
@@ -14,6 +16,7 @@ router.get('/garantia/crear', (req, res) => {
       <input type="text" name="numeroCelular" placeholder="Número de contacto (sin '+')" required>
       <input type="text" name="fechaInstalacion" placeholder="Fecha de instalación (DD/MM/YYYY)" required>
       <input type="text" name="placa" placeholder="Placa del vehículo (opcional)">
+      <input type="text" name="nombreProducto" placeholder="Nombre del producto" required>
       <button type="submit">Generar Garantía</button>
     </form>
   </div>
@@ -23,21 +26,33 @@ router.get('/garantia/crear', (req, res) => {
 
 router.post('/garantia/crear', async (req, res) => {
   try {
-    const { numeroCelular, fechaInstalacion, placa } = req.body;
-    const garantiaData = { numeroCelular, fechaInstalacion, placa };
-    // Se genera el PDF como Buffer
+    const { numeroCelular, fechaInstalacion, placa, nombreProducto } = req.body;
+    const garantiaData = { numeroCelular, fechaInstalacion, placa, nombreProducto };
+    
+    // Generar el PDF del certificado de garantía
     const pdfBuffer = await generarGarantiaPDF(garantiaData);
     
-    // Formatea el número agregándole '@c.us' si no lo incluye
-    const chatId = numeroCelular.includes('@c.us') ? numeroCelular : `${numeroCelular}@c.us`;
+    // Guardar el comprador en la colección "compradores"
+    const compradorData = {
+      numero: numeroCelular,
+      fechaInstalacion,
+      placa,
+      nombreProducto
+    };
+    try {
+      await Comprador.create(compradorData);
+      console.log("Comprador guardado en la colección compradores:", compradorData);
+    } catch (err) {
+      console.error("Error guardando comprador:", err);
+    }
     
-    // Crea un objeto MessageMedia para el PDF
+    // Formatear el número para enviar el mensaje vía WhatsApp
+    const chatId = numeroCelular.includes('@c.us') ? numeroCelular : `${numeroCelular}@c.us`;
     const pdfMedia = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), 'CertificadoGarantia.pdf');
     
-    // Envío del PDF a través del cliente de WhatsApp
     await client.sendMessage(chatId, pdfMedia, { caption: 'Adjunto: Certificado de Garantía' });
     
-    res.send("Certificado de garantía generado y enviado.");
+    res.send("Certificado de garantía generado, enviado y comprador guardado.");
   } catch (err) {
     console.error("Error generando certificado de garantía:", err);
     res.status(500).send("Error generando certificado de garantía");
