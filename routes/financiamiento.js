@@ -3,11 +3,25 @@ const express = require('express');
 const router = express.Router();
 
 const Financiamiento = require('../models/Financiamiento');
-const { parseDateDDMMYYYY, formatDateDDMMYYYY, getCurrentDateGMTMinus5, getNavBar, sleep } = require('../helpers/utilities');
-const { generarContratoPDF } = require('../helpers/pdfGenerator');
-const client = require('../config/whatsapp');
+const { 
+  parseDateDDMMYYYY, 
+  formatDateDDMMYYYY, 
+  getCurrentDateGMTMinus5, 
+  getNavBar, 
+  sleep 
+} = require('../helpers/utilities');
+// Importamos la función para generar el contrato PDF.
+// Nota: Si en pdfGenerator el módulo exporta la función directamente, no uses destructuración.
+const generarContratoPDF = require('../helpers/pdfGenerator');
 
-// Endpoint: Mostrar formulario para crear financiamiento
+// Extraemos el cliente real
+const { client } = require('../config/whatsapp');
+const { MessageMedia } = require('whatsapp-web.js');
+
+/**
+ * GET /financiamiento/crear
+ * Renderiza el formulario para registrar financiamiento.
+ */
 router.get('/financiamiento/crear', (req, res) => {
   const html = `
   <!DOCTYPE html>
@@ -46,13 +60,16 @@ router.get('/financiamiento/crear', (req, res) => {
   res.send(html);
 });
 
-// Endpoint: Procesar registro de financiamiento y enviar contrato PDF vía WhatsApp
+/**
+ * POST /financiamiento/crear
+ * Procesa el registro del financiamiento, genera el contrato PDF y lo envía vía WhatsApp.
+ */
 router.post('/financiamiento/crear', async (req, res) => {
   try {
     const { nombre, numero, dni, placa, montoTotal, cuotaInicial, numCuotas } = req.body;
     console.log("Datos recibidos para financiamiento:", req.body);
     
-    // Obtener la fecha actual en GMT-5
+    // Fecha de inicio según la zona horaria "America/Lima"
     const fechaInicio = formatDateDDMMYYYY(getCurrentDateGMTMinus5());
     const cuotaIni = cuotaInicial ? parseFloat(cuotaInicial) : 350;
     const montoTotalNum = parseFloat(montoTotal);
@@ -60,7 +77,7 @@ router.post('/financiamiento/crear', async (req, res) => {
     const numCuo = numCuotas ? parseInt(numCuotas, 10) : 2;
     const cuotaValor = parseFloat((montoRestante / numCuo).toFixed(2));
     
-    // Calcular fechas de cuotas (cada cuota a 30 días de diferencia)
+    // Calcular fechas de vencimiento para las cuotas (cada 30 días)
     const dInicio = parseDateDDMMYYYY(fechaInicio);
     const fechasCuotas = [];
     for (let i = 1; i <= numCuo; i++) {
@@ -70,10 +87,10 @@ router.post('/financiamiento/crear', async (req, res) => {
     const cuotas = fechasCuotas.map(fecha => ({ monto: cuotaValor, vencimiento: fecha, pagada: false }));
     const fechaFin = fechasCuotas[fechasCuotas.length - 1];
     
-    // Crear el documento de financiamiento y guardar en la base de datos
+    // Crear y guardar el documento de financiamiento en la BD
     const financiamiento = new Financiamiento({
       nombre,
-      numero, // Se espera el número sin el signo '+'
+      numero,  // se espera el número sin '+'
       dni,
       placa,
       montoTotal: montoTotalNum,
@@ -85,7 +102,7 @@ router.post('/financiamiento/crear', async (req, res) => {
     await financiamiento.save();
     console.log("Financiamiento guardado para el número:", numero);
     
-    // Generar el contrato PDF
+    // Generar el contrato PDF usando la función importar directamente
     const pdfBuffer = await generarContratoPDF({
       nombre_cliente: nombre,
       dni_cliente: dni,
@@ -100,22 +117,12 @@ router.post('/financiamiento/crear', async (req, res) => {
       fecha_fin: fechaFin
     });
     
-    // Enviar el contrato PDF vía WhatsApp
-    let numberId;
-    try {
-      numberId = await client.getNumberId(numero);
-      console.log('getNumberId en financiamiento:', numberId);
-    } catch (err) {
-      console.error('Error en getNumberId:', err);
-    }
-    if (!numberId) {
-      numberId = { _serialized: numero + '@c.us' };
-      console.warn('Usando fallback para número:', numberId._serialized);
-    }
-    const { MessageMedia } = require('whatsapp-web.js');
+    // Formatear el número para enviar mensaje vía WhatsApp
+    const chatId = numero.includes('@c.us') ? numero : `${numero}@c.us`;
     const pdfMedia = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), 'ContratoFinanciamiento.pdf');
+    
     try {
-      await client.sendMessage(numberId._serialized, pdfMedia, { caption: 'Adjunto: Contrato de Financiamiento y cronograma de pagos' });
+      await client.sendMessage(chatId, pdfMedia, { caption: 'Adjunto: Contrato de Financiamiento y cronograma de pagos' });
     } catch (e) {
       console.error('Error enviando contrato:', e);
       throw e;
@@ -127,7 +134,10 @@ router.post('/financiamiento/crear', async (req, res) => {
   }
 });
 
-// Endpoint: Mostrar formulario para buscar financiamiento
+/**
+ * GET /financiamiento/buscar
+ * Muestra un formulario para buscar financiamiento por número o placa.
+ */
 router.get('/financiamiento/buscar', (req, res) => {
   const html = `
   <!DOCTYPE html>
@@ -156,7 +166,10 @@ router.get('/financiamiento/buscar', (req, res) => {
   res.send(html);
 });
 
-// Endpoint: Mostrar resultados de la búsqueda y permitir marcar cuotas
+/**
+ * GET /financiamiento/buscar/result
+ * Muestra los resultados de la búsqueda y permite marcar cuotas como pagadas.
+ */
 router.get('/financiamiento/buscar/result', async (req, res) => {
   try {
     const { buscar } = req.query;
@@ -247,7 +260,10 @@ router.get('/financiamiento/buscar/result', async (req, res) => {
   }
 });
 
-// Endpoint: Marcar cuota como pagada
+/**
+ * POST /financiamiento/marcar
+ * Marca una cuota como pagada y envía un mensaje vía WhatsApp notificando el estado.
+ */
 router.post('/financiamiento/marcar', async (req, res) => {
   try {
     const { numero, indice } = req.body;
@@ -279,20 +295,15 @@ router.post('/financiamiento/marcar', async (req, res) => {
       mensaje += "Has completado todos tus pagos. ¡Felicitaciones!";
     }
     
-    let numberId;
+    // Formatea el número para WhatsApp
+    const chatId = numero.includes('@c.us') ? numero : `${numero}@c.us`;
     try {
-      numberId = await client.getNumberId(numero);
-      console.log('getNumberId en marcar:', numberId);
-    } catch (err) {
-      console.error('Error en getNumberId al marcar cuota:', err);
+      await client.sendMessage(chatId, mensaje);
+      res.send("Cuota marcada como pagada y mensaje enviado.");
+    } catch (e) {
+      console.error('Error enviando mensaje de marca de cuota:', e);
+      throw e;
     }
-    if (!numberId) {
-      numberId = { _serialized: numero + '@c.us' };
-      console.warn('Usando fallback para número:', numberId._serialized);
-    }
-    
-    await client.sendMessage(numberId._serialized, mensaje);
-    res.send("Cuota marcada como pagada y mensaje enviado.");
   } catch (err) {
     console.error("Error marcando cuota como pagada:", err);
     res.status(500).send("Error marcando cuota como pagada");

@@ -3,7 +3,8 @@ const express = require('express');
 const router = express.Router();
 const { generarGarantiaPDF } = require('../helpers/pdfGenerator');
 const { MessageMedia } = require('whatsapp-web.js');
-const client = require('../config/whatsapp');
+// Extraemos el cliente real mediante desestructuración
+const { client } = require('../config/whatsapp');
 
 router.get('/garantia/crear', (req, res) => {
   const html = `
@@ -24,24 +25,18 @@ router.post('/garantia/crear', async (req, res) => {
   try {
     const { numeroCelular, fechaInstalacion, placa } = req.body;
     const garantiaData = { numeroCelular, fechaInstalacion, placa };
+    // Se genera el PDF como Buffer
     const pdfBuffer = await generarGarantiaPDF(garantiaData);
     
-    let numberId;
-    try {
-      numberId = await client.getNumberId(numeroCelular);
-    } catch (err) {
-      console.error('Error en getNumberId para garantía:', err);
-    }
-    if (!numberId) {
-      numberId = { _serialized: numeroCelular + '@c.us' };
-    }
+    // Formatea el número agregándole '@c.us' si no lo incluye
+    const chatId = numeroCelular.includes('@c.us') ? numeroCelular : `${numeroCelular}@c.us`;
+    
+    // Crea un objeto MessageMedia para el PDF
     const pdfMedia = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), 'CertificadoGarantia.pdf');
-    try {
-      await client.sendMessage(numberId._serialized, pdfMedia, { caption: 'Adjunto: Certificado de Garantía' });
-    } catch (e) {
-      console.error('Error enviando certificado de garantía:', e);
-      throw e;
-    }
+    
+    // Envío del PDF a través del cliente de WhatsApp
+    await client.sendMessage(chatId, pdfMedia, { caption: 'Adjunto: Certificado de Garantía' });
+    
     res.send("Certificado de garantía generado y enviado.");
   } catch (err) {
     console.error("Error generando certificado de garantía:", err);
