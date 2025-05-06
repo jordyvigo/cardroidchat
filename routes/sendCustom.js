@@ -26,7 +26,7 @@ router.get("/", (req, res) => {
     </head>
     <body>
       <h1>Enviar Mensajes Personalizados</h1>
-      <form method="POST" action="/send-custom">
+      <form method="POST" action="/crm/send-custom">
         <label for="message">Mensaje:</label><br />
         <textarea id="message" name="message" rows="4" cols="50" required></textarea><br /><br />
         
