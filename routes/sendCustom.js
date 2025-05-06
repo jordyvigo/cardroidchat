@@ -87,7 +87,7 @@ router.get("/", (req, res) => {
             const html = list.map(item => `
               <div class="form-check">
                 <input class="form-check-input" type="checkbox"
-                       name="recipients[]" value="${item.phone}" id="r_${item.phone}" checked="checked">
+                       name="recipients" value="${item.phone}" id="r_${item.phone}" checked>
                 <label class="form-check-label" for="r_${item.phone}">
                   ${item.phone} - ${item.producto || ''}
                 </label>
@@ -143,7 +143,7 @@ router.get('/list', async (req, res) => {
  */
 router.post("/", async (req, res) => {
   try {
-    const { message, imageUrl, "recipients[]": recipients } = req.body;
+    const { message, imageUrl, recipients } = req.body;
     if (!message || !recipients) {
       return res.send("Debe ingresar un mensaje y seleccionar al menos un destinatario.");
     }
@@ -157,11 +157,10 @@ router.post("/", async (req, res) => {
       // Delay 2 minutos para seguridad anti-baneo
       if (i > 0) await new Promise(r => setTimeout(r, 2 * 60 * 1000));
       try {
-        let sendResult;
         if (imageUrl) {
-          sendResult = await sendWhatsAppMedia(phone, imageUrl, message);
+          await sendWhatsAppMedia(phone, imageUrl, message);
         } else {
-          sendResult = await sendWhatsAppMessage(phone, message);
+          await sendWhatsAppMessage(phone, message);
         }
         results.push({ phone, success: true });
       } catch (err) {
