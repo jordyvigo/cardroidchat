@@ -54,6 +54,12 @@ router.get('/garantia/crear', function(req, res) {
             <label for="nombreProducto" class="form-label">Nombre del producto</label>
             <input id="nombreProducto" name="nombreProducto" type="text" class="form-control" required>
           </div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" value="on" id="sendWhatsApp" name="sendWhatsApp" checked>
+            <label class="form-check-label" for="sendWhatsApp">
+              Enviar certificado por WhatsApp al cliente
+            </label>
+          </div>
           <button type="submit" class="btn btn-primary w-100">Generar Garantía</button>
         </form>
         <a href="/" class="btn btn-secondary w-100 mt-3">Volver al menú principal</a>
@@ -67,16 +73,16 @@ router.get('/garantia/crear', function(req, res) {
 
 /**
  * POST /garantia/crear
- * Genera PDF, guarda comprador y envía por WhatsApp
+ * Genera PDF, guarda comprador y (opcional) envía por WhatsApp
  */
 router.post('/garantia/crear', async function(req, res) {
-  const { numeroCelular, fechaInstalacion, placa, nombreProducto } = req.body;
+  const { numeroCelular, fechaInstalacion, placa, nombreProducto, sendWhatsApp } = req.body;
 
   try {
     // Parseo y formato de fechas
-    const [d, m, y] = fechaInstalacion.split('/');
+    const [d, m, y] = fechaInstalacion.split('-');  // input type=date da YYYY-MM-DD
     const fechaInicio = `${d}/${m}/${y}`;
-    const dt = new Date(`${y}-${m}-${d}`);
+    const dt = new Date(y, m - 1, d);
     dt.setFullYear(dt.getFullYear() + 1);
     const dd = String(dt.getDate()).padStart(2, '0');
     const mm = String(dt.getMonth() + 1).padStart(2, '0');
@@ -100,12 +106,15 @@ router.post('/garantia/crear', async function(req, res) {
     const nuevoComprador = await Comprador.create(compradorData);
     console.log('Comprador guardado:', nuevoComprador);
 
-    // Enviar PDF por WhatsApp
-    const chatId = numeroCelular.includes('@c.us') ? numeroCelular : `${numeroCelular}@c.us`;
-    const media = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), 'CertificadoGarantia.pdf');
-    await client.sendMessage(chatId, media, { caption: 'Adjunto: Certificado de Garantía' });
-
-    res.send('Certificado generado, comprador guardado y enviado correctamente.');
+    // Enviar PDF por WhatsApp si se marcó la casilla
+    if (sendWhatsApp === 'on') {
+      const chatId = numeroCelular.includes('@c.us') ? numeroCelular : `${numeroCelular}@c.us`;
+      const media = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), 'CertificadoGarantia.pdf');
+      await client.sendMessage(chatId, media, { caption: 'Adjunto: Certificado de Garantía' });
+      res.send('Certificado generado, comprador guardado y enviado correctamente.');
+    } else {
+      res.send('Certificado generado y comprador guardado sin envío de WhatsApp.');
+    }
   } catch (err) {
     console.error('Error al crear garantía:', err);
     res.status(500).send('Ocurrió un error generando o guardando la garantía.');
