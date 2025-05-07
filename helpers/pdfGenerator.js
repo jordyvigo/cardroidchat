@@ -28,9 +28,7 @@ function generarGarantiaPDF(data) {
        .text(`Contacto: ${data.numeroCelular}`)
        .text(`Instalación: ${data.fechaInicio}`)
        .text(`Válida hasta: ${data.fechaExpiracion}`);
-    if (data.placa) {
-      doc.text(`Placa: ${data.placa}`);
-    }
+    if (data.placa) doc.text(`Placa: ${data.placa}`);
     doc.text(`Producto: ${data.nombreProducto}`)
        .moveDown(2);
 
@@ -71,13 +69,17 @@ function generarGarantiaPDF(data) {
        .text('3. EXCLUSIONES Y LÍMITES', { underline: true })
        .moveDown(0.5);
     doc.font('Helvetica').fontSize(12)
-       .text('No aplica garantía para daños provocados por:', { indent: 20 })
+       .text('No aplica garantía para daños ocasionados por:', { indent: 20 })
        .list(
          [
            'Manipulaciones o reparaciones fuera de centros autorizados.',
            'Impactos, caídas o exposición a líquidos y químicos.',
            'Uso de accesorios no certificados por Cardroid.',
-           'Modificaciones de hardware o software no oficiales.'
+           'Modificaciones de hardware o software no oficiales.',
+           'Mal funcionamiento del táctil por uso de silicona u otros productos corrosivos.',
+           'Daños derivados de mal estado del alternador, batería u otros elementos eléctricos del vehículo.',
+           'Problemas causados por conexión incorrecta al sistema eléctrico del auto.',
+           'Desgaste natural o correlativo al uso prolongado sin mantenimiento adecuado.'
          ],
          { bulletIndent: 20, textIndent: 5 }
        )
@@ -191,69 +193,3 @@ function generarContratoPDF(data) {
     doc.list(
       [
         `Inicial: S/ ${data.cuota_inicial} (abonado el ${data.fecha_inicio})`,
-        `Cuota 1: S/ ${data.cuota_1} (vence el ${data.fecha_cuota_1})`,
-        `Cuota 2: S/ ${data.cuota_2} (vence el ${data.fecha_cuota_2})`
-      ],
-      { bulletIndent: 20 }  
-    )
-    .moveDown(1);
-
-    // Sección 3: Aplicación de Control
-    doc.font('Helvetica-Bold').fontSize(14)
-       .text('3. SOBRE LA APLICACIÓN DE CONTROL')
-       .font('Helvetica')
-       .moveDown(0.5);
-    doc.list(
-      [
-        'Modo kiosko: pantalla completa sin acceso a otras apps.',
-        'Notificaciones de pago y estado de la cuenta.',
-        'Restricciones automáticas en caso de mora.',
-        'Desactivación tras el pago total.'
-      ],
-      { bulletIndent: 20 }
-    )
-    .moveDown(1);
-
-    // Sección 4: Garantía durante financiamiento
-    doc.font('Helvetica-Bold').fontSize(14)
-       .text('4. GARANTÍA DURANTE EL FINANCIAMIENTO')
-       .font('Helvetica')
-       .moveDown(0.5);
-    doc.text(
-      'Durante el periodo de financiamiento, la garantía de 12 meses aplica solo a defectos de fábrica. ' +
-      'No cubre daños ocasionados por instalación externa ni mal uso.',
-      { align: 'justify' }
-    )
-    .moveDown(1);
-
-    // Sección 5: Jurisdicción y firmas
-    doc.font('Helvetica-Bold').fontSize(14)
-       .text('5. JURISDICCIÓN')
-       .font('Helvetica')
-       .moveDown(0.5);
-    doc.text('Ambas partes se someten a los tribunales de la ciudad de Trujillo.', { align: 'justify' })
-       .moveDown(2);
-
-    // Firma
-    doc.text(`Firmado el ${data.fecha_inicio}`, { align: 'center' })
-       .moveDown(1);
-    doc.text('___________________________', { align: 'center' })
-       .text('EL VENDEDOR: Jordy Vigo', { align: 'center' })
-       .moveDown(1);
-    doc.text('___________________________', { align: 'center' })
-       .text(`EL CLIENTE: ${data.nombre_cliente}`, { align: 'center' })
-       .moveDown(2);
-
-    // Pie de página
-    const bottom = doc.page.height - 50;
-    doc.font('Helvetica-Oblique').fontSize(10)
-       .text('© 2025 CRD PERÚ. Todos los derechos reservados.', 0, bottom, { align: 'center' });
-
-    doc.end();
-  });
-}
-
-module.exports = {
-  generarGarantiaPDF,
-  generarContratoPDF
-};

@@ -15,20 +15,53 @@ const Comprador = require('../models/Comprador');
 
 /**
  * GET /garantia/crear
- * Muestra formulario para crear garantía
+ * Muestra formulario para crear garantía con estilo responsivo
  */
 router.get('/garantia/crear', function(req, res) {
   res.send(`
-    <div style="background:#fff; padding:20px; border-radius:8px; max-width:500px; margin:auto; box-shadow:0 2px 5px rgba(0,0,0,0.1);">
-      <h1 style="text-align:center;">Generar Certificado de Garantía</h1>
-      <form method="POST" action="/garantia/crear">
-        <input type="tel" name="numeroCelular" placeholder="Número de contacto (sin '+')" required><br><br>
-        <input type="text" name="fechaInstalacion" placeholder="Fecha instalación (DD/MM/YYYY)" required><br><br>
-        <input type="text" name="placa" placeholder="Placa (opcional)"><br><br>
-        <input type="text" name="nombreProducto" placeholder="Nombre del producto" required><br><br>
-        <button type="submit">Generar Garantía</button>
-      </form>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Generar Certificado de Garantía</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background-color: #f8f9fa; }
+    .card { border-radius: 12px; }
+    input, button { font-size: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="container py-4">
+    <div class="card mx-auto shadow-sm" style="max-width: 500px;">
+      <div class="card-body">
+        <h1 class="card-title text-center mb-4">Generar Certificado de Garantía</h1>
+        <form method="POST" action="/garantia/crear">
+          <div class="mb-3">
+            <label for="numeroCelular" class="form-label">Número de contacto</label>
+            <input id="numeroCelular" name="numeroCelular" type="tel" class="form-control" placeholder="51912345678" required>
+          </div>
+          <div class="mb-3">
+            <label for="fechaInstalacion" class="form-label">Fecha de instalación</label>
+            <input id="fechaInstalacion" name="fechaInstalacion" type="date" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label for="placa" class="form-label">Placa (opcional)</label>
+            <input id="placa" name="placa" type="text" class="form-control" placeholder="ABC-123">
+          </div>
+          <div class="mb-3">
+            <label for="nombreProducto" class="form-label">Nombre del producto</label>
+            <input id="nombreProducto" name="nombreProducto" type="text" class="form-control" required>
+          </div>
+          <button type="submit" class="btn btn-primary w-100">Generar Garantía</button>
+        </form>
+        <a href="/" class="btn btn-secondary w-100 mt-3">Volver al menú principal</a>
+      </div>
     </div>
+  </div>
+</body>
+</html>
   `);
 });
 
