@@ -42,7 +42,7 @@ client.on('ready', () => {
 client.on('auth_failure', msg => console.error('Error de autenticación:', msg));
 
 // Escucha de mensajes: guardar interesados en financiamiento
-client.on('messageCreate', async msg => {
+client.on('message', async msg => {
   try {
     const text = msg.body.trim().toLowerCase();
     // Detectar mensajes que incluyan "deseo" y "financiamiento"
